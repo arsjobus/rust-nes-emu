@@ -4,6 +4,12 @@
   <img src="cover.png" alt="Cover">
 </p>
 
+## Compatibility (Mapper)
+
+- Mapper 0
+- Mapper 2
+- Mapper 66
+
 ### Quick Start
 
 `cargo run --release -- path/to/game.nes`
