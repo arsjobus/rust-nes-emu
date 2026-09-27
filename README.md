@@ -1,6 +1,8 @@
 ## Rust-NES-Emu
 
-![Cover](images/cover.png)
+<p align="center">
+  <img src="cover.png" alt="Cover">
+</p>
 
 ### Quick Start
 
