@@ -100,13 +100,10 @@ impl Apu {
         }
     }
 
-    pub fn clock_cpu(&mut self, cycles: u32) {
-        for _ in 0..cycles {
-            self.clock_one_cpu_cycle();
-        }
-    }
-
-    fn clock_one_cpu_cycle(&mut self) {
+    // Called once per CPU cycle by `Bus::clock_apu`, which also
+    // services any pending DMC DMA read between cycles (the APU
+    // itself has no bus access to do that directly).
+    pub(crate) fn step_cycle(&mut self) {
         self.cpu_cycle += 1;
 
         self.frame_counter.clock(
@@ -120,6 +117,7 @@ impl Apu {
             self.pulse1.clock_timer();
             self.pulse2.clock_timer();
             self.noise.clock_timer();
+            self.dmc.clock_timer();
         }
 
         self.triangle.clock_timer();
@@ -167,7 +165,7 @@ impl Apu {
         self.pulse2.enabled = value & 0x02 != 0;
         self.triangle.enabled = value & 0x04 != 0;
         self.noise.enabled = value & 0x08 != 0;
-        self.dmc.enabled = value & 0x10 != 0;
+        self.dmc.set_enabled(value & 0x10 != 0);
 
         if !self.pulse1.enabled {
             self.pulse1.length = 0;
@@ -183,10 +181,6 @@ impl Apu {
 
         if !self.noise.enabled {
             self.noise.length = 0;
-        }
-
-        if !self.dmc.enabled {
-            self.dmc.remaining = 0;
         }
     }
 
@@ -213,7 +207,31 @@ impl Apu {
             result |= 0x10;
         }
 
+        if self.dmc.irq_flag {
+            result |= 0x80;
+        }
+
         result
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * DMC DMA bridge
+     * ---------------------------------------------------------
+     *
+     * The APU has no bus access of its own (it's a field of
+     * `Bus`, so it can't hold a reference back to it), but the
+     * DMC channel needs to read sample bytes directly from CPU
+     * address space. `Bus::clock_apu` polls this after every
+     * cycle and, when a fetch is pending, performs the actual
+     * `Bus::read` and feeds the byte back in.
+     */
+    pub fn take_pending_dmc_fetch(&mut self) -> Option<u16> {
+        self.dmc.take_pending_fetch()
+    }
+
+    pub fn feed_dmc_byte(&mut self, byte: u8) {
+        self.dmc.feed_byte(byte);
     }
 
     pub fn take_samples(&mut self) -> Vec<f32> {
