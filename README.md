@@ -6,6 +6,8 @@
 
 ## Compatibility (Mapper)
 
+Games which have mappers as:
+
 - Mapper 0
 - Mapper 2
 - Mapper 66
