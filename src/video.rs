@@ -17,6 +17,9 @@ use crate::nes::Nes;
 
 use crate::postprocess::{
     Bloom,
+    ColorCorrection,
+    Lut,
+    LutPreset,
     Ntsc,
     PostProcessPipeline,
     Scanlines,
@@ -66,6 +69,10 @@ pub fn run(
      *      ↓
      * Bloom
      *      ↓
+     * Color correction
+     *      ↓
+     * LUT
+     *      ↓
      * Scanlines
      *      ↓
      * Vignette
@@ -99,14 +106,6 @@ pub fn run(
     );
 
     /*
-     * NTSC is enabled by default.
-     *
-     * Uncomment this if you want to disable it:
-     *
-     * postprocess.set_enabled("ntsc", false);
-     */
-
-    /*
      * Bloom
      *
      * threshold:
@@ -129,6 +128,66 @@ pub fn run(
 
     postprocess.set_enabled(
         "bloom",
+        false,
+    );
+
+    /*
+     * Color correction.
+     *
+     * brightness:
+     *     0.0 = unchanged.
+     *
+     * contrast:
+     *     1.0 = unchanged.
+     *
+     * saturation:
+     *     1.0 = unchanged.
+     *
+     * gamma:
+     *     1.0 = unchanged.
+     */
+    postprocess.add(
+        ColorCorrection::new(
+            0.0,
+            1.05,
+            0.95,
+            1.0,
+        )
+    );
+
+    postprocess.set_enabled(
+        "color_correction",
+        false,
+    );
+
+    /*
+     * LUT
+     *
+     * Built-in LUT-style color transform.
+     *
+     * Available presets include:
+     *
+     * Identity
+     * WarmCrt
+     * CoolCrt
+     * Composite
+     * GameBoy
+     * Amber
+     * HighContrast
+     *
+     * strength:
+     *     0.0 = original colors
+     *     1.0 = full LUT effect
+     */
+    postprocess.add(
+        Lut::new(
+            LutPreset::WarmCrt,
+            0.65,
+        )
+    );
+
+    postprocess.set_enabled(
+        "lut",
         false,
     );
 
