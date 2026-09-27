@@ -11,7 +11,7 @@ use pulse::Pulse;
 use triangle::Triangle;
 
 const CPU_CLOCK: f64 = 1_789_773.0;
-const SAMPLE_RATE: f64 = 48_000.0;
+const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
 
 pub const PULSE_DUTY: [[f32; 8]; 4] = [
     [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -49,8 +49,36 @@ pub struct Apu {
 
     cpu_cycle: u64,
 
+    // Must match the actual audio output device's sample rate
+    // exactly (see `Audio::sample_rate` / `set_sample_rate`
+    // below) - generating audio at a rate that doesn't match what
+    // the device is driven at causes the producer/consumer sides
+    // of the playback queue to drift apart over time, eventually
+    // causing periodic, audible clicking as the queue overflows
+    // or underflows.
+    sample_rate: f64,
+
     sample_clock: f64,
     samples: Vec<f32>,
+
+    // Per-channel mute switches, controlled by environment
+    // variables (NES_MUTE_PULSE1=1, NES_MUTE_PULSE2=1,
+    // NES_MUTE_TRIANGLE=1, NES_MUTE_NOISE=1, NES_MUTE_DMC=1) - a
+    // quick diagnostic for isolating which channel is responsible
+    // for an unexpected sound, without needing to add print
+    // debugging or step through code. Not meant as a permanent
+    // feature, just a fast way to bisect "which channel is that."
+    mute_pulse1: bool,
+    mute_pulse2: bool,
+    mute_triangle: bool,
+    mute_noise: bool,
+    mute_dmc: bool,
+}
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
 
 impl Apu {
@@ -65,9 +93,24 @@ impl Apu {
             frame_counter: FrameCounter::new(),
 
             cpu_cycle: 0,
+            sample_rate: DEFAULT_SAMPLE_RATE,
             sample_clock: 0.0,
             samples: Vec::with_capacity(2048),
+
+            mute_pulse1: env_flag("NES_MUTE_PULSE1"),
+            mute_pulse2: env_flag("NES_MUTE_PULSE2"),
+            mute_triangle: env_flag("NES_MUTE_TRIANGLE"),
+            mute_noise: env_flag("NES_MUTE_NOISE"),
+            mute_dmc: env_flag("NES_MUTE_DMC"),
         }
+    }
+
+    // Called once, as soon as the real audio output device is
+    // opened and its actual sample rate is known (before the main
+    // loop starts running frames), so that generated audio always
+    // matches what's actually being played back.
+    pub fn set_sample_rate(&mut self, sample_rate: f64) {
+        self.sample_rate = sample_rate;
     }
 
     pub fn cpu_read(&mut self, addr: u16) -> u8 {
@@ -122,7 +165,7 @@ impl Apu {
 
         self.triangle.clock_timer();
 
-        self.sample_clock += SAMPLE_RATE / CPU_CLOCK;
+        self.sample_clock += self.sample_rate / CPU_CLOCK;
 
         while self.sample_clock >= 1.0 {
             self.sample_clock -= 1.0;
@@ -131,8 +174,8 @@ impl Apu {
     }
 
     fn mix(&self) -> f32 {
-        let p1 = self.pulse1.output();
-        let p2 = self.pulse2.output();
+        let p1 = if self.mute_pulse1 { 0.0 } else { self.pulse1.output() };
+        let p2 = if self.mute_pulse2 { 0.0 } else { self.pulse2.output() };
 
         let pulse = p1 + p2;
 
@@ -142,9 +185,9 @@ impl Apu {
             95.88 / ((8128.0 / pulse) + 100.0)
         };
 
-        let triangle = self.triangle.output();
-        let noise = self.noise.output();
-        let dmc = self.dmc.output as f32;
+        let triangle = if self.mute_triangle { 0.0 } else { self.triangle.output() };
+        let noise = if self.mute_noise { 0.0 } else { self.noise.output() };
+        let dmc = if self.mute_dmc { 0.0 } else { self.dmc.output as f32 };
 
         let tnd =
             triangle / 8227.0 +

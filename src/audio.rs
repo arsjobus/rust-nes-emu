@@ -17,6 +17,7 @@ const MAX_BUFFER_SAMPLES: usize = 48_000;
 pub struct Audio {
 queue: Arc<Mutex<VecDeque<f32>>>,
 channels: usize,
+sample_rate: u32,
 _stream: Stream,
 }
 
@@ -46,6 +47,20 @@ let host = cpal::default_host();
 
     let channels =
         config.channels as usize;
+
+    // This is the actual rate the audio device will be driven
+    // at. The APU must generate samples at exactly this rate (see
+    // `Apu::set_sample_rate`, called by the caller once this
+    // returns) - previously the APU always generated audio for a
+    // hardcoded 48000 Hz regardless of what the device actually
+    // used, which (whenever the device's default differed, e.g.
+    // 44100 Hz) caused the producer/consumer sides of the audio
+    // queue to drift out of sync: the queue would steadily grow
+    // or shrink relative to real-time consumption, periodically
+    // hitting its overflow/underflow handling and causing an
+    // audible, rhythmic click each time.
+    let sample_rate =
+        config.sample_rate.0;
 
     println!(
         "Audio device: {}",
@@ -188,8 +203,13 @@ let host = cpal::default_host();
     Ok(Self {
         queue,
         channels,
+        sample_rate,
         _stream: stream,
     })
+}
+
+pub fn sample_rate(&self) -> u32 {
+    self.sample_rate
 }
 
 pub fn push_samples(
@@ -202,14 +222,20 @@ pub fn push_samples(
             Err(_) => return,
         };
 
+    // If the queue is already full, drop the incoming (newest)
+    // samples rather than evicting from the front: the front of
+    // the queue is what's about to be played next, and yanking
+    // already-scheduled audio out from under the callback causes
+    // an audible jump/click. A momentary buffer-full condition is
+    // far less noticeable than that.
     for &sample in samples {
+        if queue.len() >= MAX_BUFFER_SAMPLES {
+            break;
+        }
+
         queue.push_back(
             sample.clamp(-1.0, 1.0)
         );
-    }
-
-    while queue.len() > MAX_BUFFER_SAMPLES {
-        queue.pop_front();
     }
 }
 

@@ -114,6 +114,23 @@ let mut audio =
 
 /*
  * ---------------------------------------------------------
+ * The APU must generate samples at exactly the rate the
+ * audio device is actually being driven at, or the audio
+ * queue's producer (APU) and consumer (the device's callback)
+ * disagree on rate and slowly drift apart in real time -
+ * eventually causing periodic, audible clicking as the queue
+ * overflows or underflows, regardless of what's actually
+ * playing in the game. This must happen before the main loop
+ * below ever calls `nes.run_frame()`.
+ * ---------------------------------------------------------
+ */
+
+nes.bus.apu.set_sample_rate(
+    audio.sample_rate() as f64
+);
+
+/*
+ * ---------------------------------------------------------
  * Post-processing pipeline
  * ---------------------------------------------------------
  */

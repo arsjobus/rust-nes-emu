@@ -100,6 +100,24 @@ impl Triangle {
             return 0.0;
         }
 
+        // Real hardware never silences the triangle channel itself -
+        // many games (famously Mega Man 2) "mute" it by setting the
+        // period to 0 or 1 instead of clearing the length counter,
+        // which produces an ultrasonic tone that's naturally
+        // filtered out by the analog output stage. A digital
+        // emulator has no such filter, so faithfully reproducing
+        // that ultrasonic wave aliases down into audible, buzzing
+        // noise instead of the intended silence. This is a very
+        // well-documented, common quirk (nesdev wiki: "these can be
+        // eliminated in an emulator by halting the triangle channel
+        // when an ultrasonic frequency is set (a timer value less
+        // than 2)") - so we special-case it here, trading a small
+        // amount of hardware "accuracy" (real hardware technically
+        // isn't silent here either) for correct, listenable audio.
+        if self.period < 2 {
+            return 0.0;
+        }
+
         let x = self.sequence as f32;
 
         if x < 16.0 {

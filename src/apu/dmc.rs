@@ -139,6 +139,7 @@ impl Dmc {
 
         if !enabled {
             self.remaining = 0;
+            self.pending_fetch = None;
         } else if self.remaining == 0 {
             self.restart();
         }
@@ -218,6 +219,23 @@ impl Dmc {
     }
 
     pub(super) fn feed_byte(&mut self, byte: u8) {
+        // Guard against a race: `clock_timer` can request a fetch
+        // while `remaining > 0`, but the channel can be disabled
+        // (which force-sets `remaining = 0`) before that fetch is
+        // actually serviced and this function is called with the
+        // resulting byte. Without this guard, the unconditional
+        // `remaining -= 1` below would underflow a `u16` from 0,
+        // wrapping to 65535 - making the reader think there are
+        // another 65535 bytes of "sample" left and causing it to
+        // stream raw PRG-ROM bytes as audio indefinitely, ignoring
+        // that it was ever disabled. Simplest correct fix: a byte
+        // that arrives after we've been reset to idle is stale -
+        // just discard it.
+        if self.remaining == 0 {
+            self.sample_buffer = None;
+            return;
+        }
+
         self.sample_buffer = Some(byte);
 
         // $FFFF wraps to $8000, per hardware (nesdev wiki: "the
