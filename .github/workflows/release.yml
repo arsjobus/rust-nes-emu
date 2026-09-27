@@ -10,23 +10,32 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
         include:
-          - os: windows-latest
+          # Windows x64
+          - name: windows-x86_64
+            os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: runes.exe
+            binary: runes.exe
+            output: runes-windows-x86_64.exe
 
-          - os: macos-latest
+          # macOS Intel
+          - name: macos-x86_64
+            os: macos-15-intel
             target: x86_64-apple-darwin
-            artifact: runes
+            binary: runes
+            output: runes-macos-x86_64
 
-          - os: macos-latest
+          # macOS Apple Silicon
+          - name: macos-arm64
+            os: macos-latest
             target: aarch64-apple-darwin
-            artifact: runes
+            binary: runes
+            output: runes-macos-arm64
 
     steps:
       - name: Checkout
@@ -40,27 +49,22 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
+      - name: Package
         shell: bash
         run: |
           mkdir -p dist
 
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp "target/${{ matrix.target }}/release/${{ matrix.artifact }}" \
-               "dist/runes-windows-x86_64.exe"
-          elif [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
-            cp "target/${{ matrix.target }}/release/${{ matrix.artifact }}" \
-               "dist/runes-macos-arm64"
-          else
-            cp "target/${{ matrix.target }}/release/${{ matrix.artifact }}" \
-               "dist/runes-macos-x86_64"
-          fi
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+             "dist/${{ matrix.output }}"
 
-      - name: Upload build artifact
+          echo "Built:"
+          ls -lh dist/
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.target }}
-          path: dist/*
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.output }}
 
   release:
     name: Create GitHub Release
@@ -68,14 +72,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Show release files
+        run: |
+          echo "Release files:"
+          ls -lh dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
         with:
-          files: dist/*
+          files: |
+            dist/runes-windows-x86_64.exe
+            dist/runes-macos-x86_64
+            dist/runes-macos-arm64
           generate_release_notes: true
