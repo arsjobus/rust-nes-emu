@@ -9,3 +9,19 @@
 1) `cargo build --release`
 2) `./target/nes roms/mario.nes`
 
+src/
+├── main.rs
+├── nes.rs
+├── cpu/
+│   ├── mod.rs
+│   ├── instructions.rs
+│   └── addressing.rs
+├── ppu/
+│   ├── mod.rs
+│   └── renderer.rs
+├── cartridge/
+│   ├── mod.rs
+│   └── mapper.rs
+├── input.rs
+├── bus.rs
+└── video.rs
