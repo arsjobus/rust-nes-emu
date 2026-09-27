@@ -18,6 +18,19 @@ src/
 │   ├── mod.rs
 │   ├── instructions.rs
 │   └── addressing.rs
+├── postprocess/
+│   ├── auto_gradient.rs
+│   ├── bloom.rs
+│   ├── color_correction.rs
+│   ├── curvature.rs
+│   ├── effect.rs
+│   ├── lut.rs
+│   ├── mod.rs
+│   ├── ntcs.rs
+│   ├── persistence.rs
+│   ├── pipeline.rs
+│   ├── scanlines.rs
+│   ├── vignette.rs
 ├── ppu/
 │   ├── mod.rs
 │   └── renderer.rs
