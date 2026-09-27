@@ -7,17 +7,6 @@ use gilrs::{
     Gilrs,
 };
 
-use gilrs::ff::{
-    BaseEffect,
-    BaseEffectType,
-    Effect,
-    EffectBuilder,
-    Replay,
-    Ticks,
-};
-
-use std::time::{Duration, Instant};
-
 use super::mapping::{
     map_button,
     NesButton,
@@ -29,14 +18,6 @@ const AXIS_THRESHOLD: f32 = 0.5;
 pub struct Controller {
     gilrs: Option<Gilrs>,
     gamepad_id: Option<GamepadId>,
-
-    /*
-     * Active rumble effects, kept alive until their playback
-     * duration elapses. gilrs stops (erases) a force-feedback
-     * effect as soon as its `Effect` handle is dropped, so these
-     * must be held here rather than as locals in `rumble()`.
-     */
-    active_rumbles: Vec<(Effect, Instant, Duration)>,
 
     /*
      * USB/gamepad state.
@@ -85,7 +66,6 @@ impl Controller {
         let controller = Self {
             gilrs,
             gamepad_id,
-            active_rumbles: Vec::new(),
             usb_buttons: NesButtons::default(),
             keyboard_buttons: NesButtons::default(),
             strobe: false,
@@ -126,8 +106,6 @@ impl Controller {
      * ---------------------------------------------------------
      */
     pub fn update(&mut self) {
-        self.prune_rumbles();
-
         /*
          * First process gilrs events.
          *
@@ -554,102 +532,6 @@ impl Controller {
                 .name()
                 .to_string()
         )
-    }
-
-    /*
-     * ---------------------------------------------------------
-     * Force feedback (rumble)
-     * ---------------------------------------------------------
-     *
-     * Used by external hooks (e.g. a scripting layer watching
-     * game RAM) to trigger haptic feedback on the connected
-     * gamepad. `strength` is 0-65535 (gilrs' own scale); `duration_ms`
-     * is how long the effect plays. Silently does nothing if no
-     * gamepad, or a gamepad with no FF support, is connected.
-     */
-    pub fn rumble(
-        &mut self,
-        strength: u16,
-        duration_ms: u64,
-    ) {
-        let (Some(gilrs), Some(id)) =
-            (self.gilrs.as_mut(), self.gamepad_id)
-        else {
-            return;
-        };
-
-        if !gilrs.gamepad(id).is_ff_supported() {
-            return;
-        }
-
-        let duration =
-            Ticks::from_ms(duration_ms as u32);
-
-        let effect = EffectBuilder::new()
-            .add_effect(BaseEffect {
-                kind: BaseEffectType::Strong {
-                    magnitude: strength,
-                },
-                scheduling: Replay {
-                    play_for: duration,
-                    ..Default::default()
-                },
-                envelope: Default::default(),
-            })
-            .add_effect(BaseEffect {
-                kind: BaseEffectType::Weak {
-                    magnitude: strength,
-                },
-                scheduling: Replay {
-                    play_for: duration,
-                    ..Default::default()
-                },
-                envelope: Default::default(),
-            })
-            .gamepads(&[id])
-            .finish(gilrs);
-
-        match effect {
-            Ok(effect) => {
-                if let Err(error) = effect.play() {
-                    eprintln!(
-                        "Warning: failed to play rumble effect: {}",
-                        error
-                    );
-
-                    // Don't keep a handle that never played.
-                    return;
-                }
-
-                // gilrs stops the effect as soon as its handle is
-                // dropped, so it must be kept alive here until
-                // `duration_ms` has elapsed - pruned in `update()`.
-                self.active_rumbles.push((
-                    effect,
-                    Instant::now(),
-                    Duration::from_millis(duration_ms),
-                ));
-            }
-
-            Err(error) => {
-                eprintln!(
-                    "Warning: failed to build rumble effect: {}",
-                    error
-                );
-            }
-        }
-    }
-
-    /*
-     * Drops any rumble effect handles whose playback duration has
-     * elapsed. Cheap to call every frame - called from `update()`.
-     */
-    fn prune_rumbles(&mut self) {
-        let now = Instant::now();
-
-        self.active_rumbles.retain(|(_, started, duration)| {
-            now.duration_since(*started) < *duration
-        });
     }
 
     /*

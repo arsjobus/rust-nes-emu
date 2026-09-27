@@ -41,7 +41,7 @@ impl Nes {
                 (cycles * 3) as i32
             );
 
-            self.bus.clock_apu(cycles);
+            self.bus.apu.clock_cpu(cycles);
 
             if self.bus.ppu.nmi_pending
                 && !self.bus.ppu.nmi_fired
