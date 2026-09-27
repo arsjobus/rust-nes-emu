@@ -21,7 +21,7 @@ Directory: https://nesdir.github.io/
 ### Build Release
 
 1) `cargo build --release`
-2) `./target/runes roms/{game}.nes`
+2) `./target/release/runes roms/{game}.nes`
 
 ## Project Structure
 
