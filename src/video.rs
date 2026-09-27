@@ -16,6 +16,7 @@ use crate::audio::Audio;
 use crate::nes::Nes;
 
 use crate::postprocess::{
+    Bloom,
     PostProcessPipeline,
     Scanlines,
     Vignette,
@@ -60,6 +61,8 @@ pub fn run(
      *
      * PPU framebuffer
      *      ↓
+     * Bloom
+     *      ↓
      * Scanlines
      *      ↓
      * Vignette
@@ -69,13 +72,50 @@ pub fn run(
     let mut postprocess =
         PostProcessPipeline::new();
 
+    /*
+     * Bloom
+     *
+     * threshold:
+     *     Minimum brightness required to contribute
+     *     to the glow.
+     *
+     * strength:
+     *     Amount of glow added to the image.
+     *
+     * radius:
+     *     Size of the glow around bright pixels.
+     */
     postprocess.add(
-        Scanlines::new(0.25)
+        Bloom::new(
+            180,
+            0.20,
+            3,
+        )
     );
 
+    postprocess.set_enabled("bloom", false);
+
+    /*
+     * Scanlines
+     *
+     * Darkens alternating horizontal lines.
+     */
+    postprocess.add(
+        Scanlines::new(0.1)
+    );
+
+    postprocess.set_enabled("scanlines", false);
+
+    /*
+     * Vignette
+     *
+     * Slightly darkens the edges of the screen.
+     */
     postprocess.add(
         Vignette::new(0.35)
     );
+
+    postprocess.set_enabled("vignette", false);
 
     let max_frames =
         env::var("NES_MAX_FRAMES")
