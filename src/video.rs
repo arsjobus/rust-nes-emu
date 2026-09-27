@@ -34,6 +34,7 @@ const HEIGHT: usize = 240;
 
 pub fn run(
     mut nes: Nes,
+    args: &[String],
 ) {
     let mut window =
         Window::new(
@@ -52,55 +53,19 @@ pub fn run(
 
     window.set_target_fps(60);
 
-    /*
-     * Start audio.
-     *
-     * The Audio object owns the CPAL stream and
-     * must remain alive for the emulator session.
-     */
     let mut audio =
         Audio::new()
             .expect(
                 "Could not initialize audio"
             );
 
-    /*
-     * Post-processing pipeline.
-     *
-     * PPU framebuffer
-     *      ↓
-     * NTSC
-     *      ↓
-     * Persistence
-     *      ↓
-     * Bloom
-     *      ↓
-     * Color correction
-     *      ↓
-     * LUT
-     *      ↓
-     * Curvature
-     *      ↓
-     * Auto Gradient
-     *      ↓
-     * Scanlines
-     *      ↓
-     * Vignette
-     *      ↓
-     * minifb
-     */
     let mut postprocess =
         PostProcessPipeline::new();
 
     /*
-     * NTSC / composite color bleed.
-     *
-     * strength:
-     *     How strongly color information bleeds
-     *     horizontally.
-     *
-     * bleed:
-     *     Horizontal bleed distance.
+     * ---------------------------------------------------------
+     * NTSC
+     * ---------------------------------------------------------
      */
     postprocess.add(
         Ntsc::new(
@@ -111,17 +76,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "ntsc",
-        false,
+        args.iter().any(
+            |arg| arg == "--ntsc"
+        ),
     );
 
     /*
-     * Motion persistence / multi-frame blur.
-     *
-     * amount:
-     *     Previous-frame contribution.
-     *
-     * frames:
-     *     Number of previous frames retained.
+     * ---------------------------------------------------------
+     * Persistence
+     * ---------------------------------------------------------
      */
     postprocess.add(
         Persistence::new(
@@ -132,20 +95,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "persistence",
-        false,
+        args.iter().any(
+            |arg| arg == "--persistence"
+        ),
     );
 
     /*
-     * Bloom.
-     *
-     * threshold:
-     *     Minimum brightness required to glow.
-     *
-     * strength:
-     *     Amount of glow.
-     *
-     * radius:
-     *     Glow radius.
+     * ---------------------------------------------------------
+     * Bloom
+     * ---------------------------------------------------------
      */
     postprocess.add(
         Bloom::new(
@@ -157,23 +115,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "bloom",
-        false,
+        args.iter().any(
+            |arg| arg == "--bloom"
+        ),
     );
 
     /*
-     * Color correction.
-     *
-     * brightness:
-     *     0.0 = unchanged
-     *
-     * contrast:
-     *     1.0 = unchanged
-     *
-     * saturation:
-     *     1.0 = unchanged
-     *
-     * gamma:
-     *     1.0 = unchanged
+     * ---------------------------------------------------------
+     * Color correction
+     * ---------------------------------------------------------
      */
     postprocess.add(
         ColorCorrection::new(
@@ -186,13 +136,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "color_correction",
-        false,
+        args.iter().any(
+            |arg| arg == "--color-correction"
+        ),
     );
 
     /*
-     * LUT.
-     *
-     * WarmCrt is configured but disabled.
+     * ---------------------------------------------------------
+     * LUT
+     * ---------------------------------------------------------
      */
     postprocess.add(
         Lut::new(
@@ -203,17 +155,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "lut",
-        false,
+        args.iter().any(
+            |arg| arg == "--lut"
+        ),
     );
 
     /*
-     * CRT curvature.
-     *
-     * 0.00 = flat
-     * 0.05 = subtle
-     * 0.10 = noticeable
-     * 0.15 = strong
-     * 0.25 = heavy
+     * ---------------------------------------------------------
+     * CRT curvature
+     * ---------------------------------------------------------
      */
     postprocess.add(
         Curvature::new(
@@ -223,22 +173,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "curvature",
-        false,
+        args.iter().any(
+            |arg| arg == "--curvature"
+        ),
     );
 
     /*
-     * Automatic screen gradient.
-     *
-     * strength:
-     *     Overall gradient intensity.
-     *
-     * vertical:
-     *     Top-to-bottom illumination variation.
-     *
-     * horizontal:
-     *     Center-to-edge illumination variation.
-     *
-     * This is enabled for testing.
+     * ---------------------------------------------------------
+     * Automatic gradient
+     * ---------------------------------------------------------
      */
     postprocess.add(
         AutoGradient::new(
@@ -250,11 +193,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "auto_gradient",
-        false,
+        args.iter().any(
+            |arg| arg == "--auto-gradient"
+        ),
     );
 
     /*
-     * Scanlines.
+     * ---------------------------------------------------------
+     * Scanlines
+     * ---------------------------------------------------------
      */
     postprocess.add(
         Scanlines::new(
@@ -264,11 +211,15 @@ pub fn run(
 
     postprocess.set_enabled(
         "scanlines",
-        false,
+        args.iter().any(
+            |arg| arg == "--scanlines"
+        ),
     );
 
     /*
-     * Vignette.
+     * ---------------------------------------------------------
+     * Vignette
+     * ---------------------------------------------------------
      */
     postprocess.add(
         Vignette::new(
@@ -278,7 +229,9 @@ pub fn run(
 
     postprocess.set_enabled(
         "vignette",
-        false,
+        args.iter().any(
+            |arg| arg == "--vignette"
+        ),
     );
 
     let max_frames =
@@ -299,23 +252,12 @@ pub fn run(
             Key::Escape
         )
     {
-        /*
-         * Update controller state.
-         */
         nes.update_input(
             &window
         );
 
-        /*
-         * Run CPU/PPU/APU until one
-         * complete video frame exists.
-         */
         nes.run_frame();
 
-        /*
-         * Send generated audio samples
-         * to the audio device.
-         */
         let samples =
             nes.take_audio_samples();
 
@@ -323,24 +265,12 @@ pub fn run(
             &samples
         );
 
-        /*
-         * Apply the post-processing pipeline.
-         *
-         * framebuffer:
-         *     256x240 pixels
-         *
-         * format:
-         *     0xRRGGBB
-         */
         postprocess.apply(
             nes.framebuffer_mut(),
             WIDTH,
             HEIGHT,
         );
 
-        /*
-         * Display the processed frame.
-         */
         window
             .update_with_buffer(
                 nes.framebuffer(),
@@ -361,9 +291,6 @@ pub fn run(
             }
         }
 
-        /*
-         * Keep emulator around 60 FPS.
-         */
         let elapsed =
             last.elapsed();
 

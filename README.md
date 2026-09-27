@@ -36,3 +36,16 @@ src/
 ├── input.rs
 ├── bus.rs
 └── video.rs
+
+## Post Processing Effect Switches
+
+--ntsc
+--persistence
+--bloom
+--color-correction
+--lut
+--curvature
+--auto-gradient
+--scanlines
+--vignette
+--sprite-shadows

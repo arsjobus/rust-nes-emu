@@ -7,6 +7,19 @@ pub use renderer::NES_PALETTE;
 pub(crate) const WIDTH: usize = 256;
 pub(crate) const HEIGHT: usize = 240;
 
+#[derive(Debug, Clone, Copy)]
+pub struct PpuOptions {
+    pub sprite_shadows: bool,
+}
+
+impl Default for PpuOptions {
+    fn default() -> Self {
+        Self {
+            sprite_shadows: true,
+        }
+    }
+}
+
 pub struct Ppu {
     pub(crate) cart: Cartridge,
 
@@ -39,6 +52,8 @@ pub struct Ppu {
     pub(crate) bg_opaque: [u8; 256],
 
     pub framebuffer: Vec<u32>,
+
+    pub options: PpuOptions,
 }
 
 impl Ppu {
@@ -76,6 +91,8 @@ impl Ppu {
 
             framebuffer:
                 vec![0; WIDTH * HEIGHT],
+
+            options: PpuOptions::default(),
         }
     }
 
