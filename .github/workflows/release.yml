@@ -52,25 +52,46 @@ jobs:
         run: |
           echo "Cargo.toml:"
           cat Cargo.toml
+
           echo
           echo "Cargo packages:"
           cargo metadata --no-deps --format-version 1
 
+      # IMPORTANT:
+      # Do not use "\" for multiline commands unless the shell is bash.
+      # GitHub Actions uses PowerShell by default on Windows.
       - name: Build
+        shell: bash
         run: |
+          set -e
+
+          echo "Building target: ${{ matrix.target }}"
+
           cargo build \
             --release \
-            --target ${{ matrix.target }}
+            --target "${{ matrix.target }}"
 
       - name: Find binary
         shell: bash
         run: |
+          set -e
+
+          RELEASE_DIR="target/${{ matrix.target }}/release"
+
           echo "Files produced by Cargo:"
-          find "target/${{ matrix.target }}/release" \
-            -maxdepth 1 \
-            -type f \
-            -print \
-            -exec ls -lh {} \;
+          echo
+
+          if [ -d "$RELEASE_DIR" ]; then
+            find "$RELEASE_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -print \
+              -exec ls -lh {} \;
+          else
+            echo "ERROR: Release directory does not exist:"
+            echo "$RELEASE_DIR"
+            exit 1
+          fi
 
       - name: Package
         shell: bash
@@ -86,12 +107,12 @@ jobs:
           echo "$SOURCE"
 
           if [ ! -f "$SOURCE" ]; then
-            echo ""
+            echo
             echo "ERROR: Expected binary does not exist."
-            echo ""
+            echo
             echo "Release directory contains:"
             ls -lah "target/${{ matrix.target }}/release/"
-            echo ""
+            echo
             echo "Cargo package:"
             cargo metadata --no-deps --format-version 1
             exit 1
@@ -99,9 +120,10 @@ jobs:
 
           cp "$SOURCE" "$DEST"
 
+          # This is harmless on Windows and useful for macOS/Linux.
           chmod +x "$DEST" || true
 
-          echo ""
+          echo
           echo "Packaged:"
           ls -lh "$DEST"
 
@@ -132,11 +154,17 @@ jobs:
           echo "Release files:"
           ls -lah dist/
 
+          echo
+          echo "Checking Windows binary..."
           test -f dist/runes-windows-x86_64.exe
+
+          echo "Checking macOS Intel binary..."
           test -f dist/runes-macos-x86_64
+
+          echo "Checking macOS Apple Silicon binary..."
           test -f dist/runes-macos-arm64
 
-          echo ""
+          echo
           echo "All release files are present."
 
       - name: Create GitHub Release
