@@ -17,6 +17,7 @@ use crate::nes::Nes;
 
 use crate::postprocess::{
     Bloom,
+    Ntsc,
     PostProcessPipeline,
     Scanlines,
     Vignette,
@@ -61,6 +62,8 @@ pub fn run(
      *
      * PPU framebuffer
      *      ↓
+     * NTSC color bleed
+     *      ↓
      * Bloom
      *      ↓
      * Scanlines
@@ -71,6 +74,37 @@ pub fn run(
      */
     let mut postprocess =
         PostProcessPipeline::new();
+
+    /*
+     * NTSC / composite color bleed.
+     *
+     * strength:
+     *     How strongly color information bleeds
+     *     horizontally.
+     *
+     * bleed:
+     *     Number of pixels used for the horizontal
+     *     chroma blur.
+     */
+    postprocess.add(
+        Ntsc::new(
+            0.65,
+            2,
+        )
+    );
+
+    postprocess.set_enabled(
+        "ntsc",
+        false,
+    );
+
+    /*
+     * NTSC is enabled by default.
+     *
+     * Uncomment this if you want to disable it:
+     *
+     * postprocess.set_enabled("ntsc", false);
+     */
 
     /*
      * Bloom
@@ -93,7 +127,10 @@ pub fn run(
         )
     );
 
-    postprocess.set_enabled("bloom", false);
+    postprocess.set_enabled(
+        "bloom",
+        false,
+    );
 
     /*
      * Scanlines
@@ -101,10 +138,15 @@ pub fn run(
      * Darkens alternating horizontal lines.
      */
     postprocess.add(
-        Scanlines::new(0.1)
+        Scanlines::new(
+            0.1
+        )
     );
 
-    postprocess.set_enabled("scanlines", false);
+    postprocess.set_enabled(
+        "scanlines",
+        false,
+    );
 
     /*
      * Vignette
@@ -112,19 +154,26 @@ pub fn run(
      * Slightly darkens the edges of the screen.
      */
     postprocess.add(
-        Vignette::new(0.35)
+        Vignette::new(
+            0.35
+        )
     );
 
-    postprocess.set_enabled("vignette", false);
+    postprocess.set_enabled(
+        "vignette",
+        false,
+    );
 
     let max_frames =
         env::var("NES_MAX_FRAMES")
             .ok()
             .and_then(|v| v.parse::<u64>().ok());
 
-    let mut frame_count = 0u64;
+    let mut frame_count =
+        0u64;
 
-    let mut last = Instant::now();
+    let mut last =
+        Instant::now();
 
     while window.is_open()
         && !window.is_key_down(Key::Escape)
@@ -133,7 +182,9 @@ pub fn run(
          * Update controller state before running
          * the next frame.
          */
-        nes.update_input(&window);
+        nes.update_input(
+            &window
+        );
 
         /*
          * Run the CPU/PPU/APU until one video frame
@@ -150,7 +201,9 @@ pub fn run(
         let samples =
             nes.take_audio_samples();
 
-        audio.push_samples(&samples);
+        audio.push_samples(
+            &samples
+        );
 
         /*
          * Apply post-processing after the PPU has
@@ -174,11 +227,15 @@ pub fn run(
                 WIDTH,
                 HEIGHT,
             )
-            .expect("Failed to update window");
+            .expect(
+                "Failed to update window"
+            );
 
         frame_count += 1;
 
-        if let Some(max) = max_frames {
+        if let Some(max) =
+            max_frames
+        {
             if frame_count >= max {
                 break;
             }
@@ -194,14 +251,18 @@ pub fn run(
             last.elapsed();
 
         if elapsed <
-            Duration::from_micros(16_667)
+            Duration::from_micros(
+                16_667
+            )
         {
             std::thread::sleep(
-                Duration::from_micros(16_667)
-                    - elapsed
+                Duration::from_micros(
+                    16_667
+                ) - elapsed
             );
         }
 
-        last = Instant::now();
+        last =
+            Instant::now();
     }
 }
