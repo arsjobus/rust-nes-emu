@@ -1,5 +1,6 @@
 pub mod effect;
 pub mod pipeline;
+pub mod auto_gradient;
 pub mod bloom;
 pub mod color_correction;
 pub mod curvature;
@@ -11,6 +12,7 @@ pub mod vignette;
 
 pub use effect::PostProcessEffect;
 pub use pipeline::PostProcessPipeline;
+pub use auto_gradient::AutoGradient;
 pub use bloom::Bloom;
 pub use color_correction::ColorCorrection;
 pub use curvature::Curvature;

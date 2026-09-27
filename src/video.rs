@@ -16,6 +16,7 @@ use crate::audio::Audio;
 use crate::nes::Nes;
 
 use crate::postprocess::{
+    AutoGradient,
     Bloom,
     ColorCorrection,
     Curvature,
@@ -80,6 +81,8 @@ pub fn run(
      *      ↓
      * Curvature
      *      ↓
+     * Auto Gradient
+     *      ↓
      * Scanlines
      *      ↓
      * Vignette
@@ -119,11 +122,6 @@ pub fn run(
      *
      * frames:
      *     Number of previous frames retained.
-     *
-     * 0.10, 3 = subtle
-     * 0.20, 3 = noticeable
-     * 0.35, 3 = strong
-     * 0.50, 4 = very strong
      */
     postprocess.add(
         Persistence::new(
@@ -139,6 +137,15 @@ pub fn run(
 
     /*
      * Bloom.
+     *
+     * threshold:
+     *     Minimum brightness required to glow.
+     *
+     * strength:
+     *     Amount of glow.
+     *
+     * radius:
+     *     Glow radius.
      */
     postprocess.add(
         Bloom::new(
@@ -202,15 +209,11 @@ pub fn run(
     /*
      * CRT curvature.
      *
-     * amount:
-     *
-     *     0.00 = flat
-     *     0.05 = subtle
-     *     0.10 = noticeable
-     *     0.15 = strong
-     *     0.25 = heavy CRT curvature
-     *
-     * Enabled for testing.
+     * 0.00 = flat
+     * 0.05 = subtle
+     * 0.10 = noticeable
+     * 0.15 = strong
+     * 0.25 = heavy
      */
     postprocess.add(
         Curvature::new(
@@ -220,6 +223,33 @@ pub fn run(
 
     postprocess.set_enabled(
         "curvature",
+        false,
+    );
+
+    /*
+     * Automatic screen gradient.
+     *
+     * strength:
+     *     Overall gradient intensity.
+     *
+     * vertical:
+     *     Top-to-bottom illumination variation.
+     *
+     * horizontal:
+     *     Center-to-edge illumination variation.
+     *
+     * This is enabled for testing.
+     */
+    postprocess.add(
+        AutoGradient::new(
+            0.15,
+            0.40,
+            0.25,
+        )
+    );
+
+    postprocess.set_enabled(
+        "auto_gradient",
         false,
     );
 
