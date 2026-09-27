@@ -1,5 +1,7 @@
 ## Rust-NES-Emu
 
+![Cover](images/cover.png)
+
 ### Quick Start
 
 `cargo run --release -- path/to/game.nes`
