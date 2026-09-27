@@ -6,11 +6,13 @@ pub use mapper::{
     GxromMapper,
     Mapper,
     NromMapper,
+    UxromMapper,
 };
 
 #[derive(Clone, Copy, Debug)]
 pub enum MapperKind {
     Nrom,
+    Uxrom,
     Gxrom,
 }
 
@@ -53,6 +55,10 @@ impl Cartridge {
         let flags7 =
             data[7];
 
+        // iNES mapper number:
+        //
+        // flags 7 bits 4-7 = mapper high nibble
+        // flags 6 bits 4-7 = mapper low nibble
         let mapper_num =
             (flags7 & 0xf0) |
             (flags6 >> 4);
@@ -89,6 +95,8 @@ impl Cartridge {
 
         let (chr, chr_ram) =
             if chr_size == 0 {
+                // No CHR ROM means the cartridge
+                // uses CHR RAM.
                 (
                     vec![0u8; 8192],
                     true,
@@ -111,11 +119,19 @@ impl Cartridge {
         let (mapper_kind, mapper):
             (MapperKind, Box<dyn Mapper>) =
             match mapper_num {
+                // Mapper 0 - NROM
                 0 => (
                     MapperKind::Nrom,
                     Box::new(NromMapper::new()),
                 ),
 
+                // Mapper 2 - UxROM
+                2 => (
+                    MapperKind::Uxrom,
+                    Box::new(UxromMapper::new()),
+                ),
+
+                // Mapper 66 - GxROM
                 66 => (
                     MapperKind::Gxrom,
                     Box::new(GxromMapper::new()),

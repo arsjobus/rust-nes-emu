@@ -9,6 +9,8 @@
 1) `cargo build --release`
 2) `./target/nes roms/mario.nes`
 
+## Project Structure
+
 src/
 ├── main.rs
 ├── nes.rs
@@ -28,7 +30,9 @@ src/
 │   ├── triangle.rs
 │   ├── noise.rs
 │   ├── dmc.rs
-│   └── mixer.rs
+│   └── frame_counter.rs
+├── audio.rs
+├── bus.rs
 ├── input.rs
 ├── bus.rs
 └── video.rs
