@@ -18,6 +18,7 @@ use crate::nes::Nes;
 use crate::postprocess::{
     Bloom,
     ColorCorrection,
+    Curvature,
     Lut,
     LutPreset,
     Ntsc,
@@ -77,6 +78,8 @@ pub fn run(
      *      ↓
      * LUT
      *      ↓
+     * Curvature
+     *      ↓
      * Scanlines
      *      ↓
      * Vignette
@@ -88,6 +91,13 @@ pub fn run(
 
     /*
      * NTSC / composite color bleed.
+     *
+     * strength:
+     *     How strongly color information bleeds
+     *     horizontally.
+     *
+     * bleed:
+     *     Horizontal bleed distance.
      */
     postprocess.add(
         Ntsc::new(
@@ -104,15 +114,16 @@ pub fn run(
     /*
      * Motion persistence / multi-frame blur.
      *
-     * The second argument controls how many
-     * previous frames are retained.
+     * amount:
+     *     Previous-frame contribution.
+     *
+     * frames:
+     *     Number of previous frames retained.
      *
      * 0.10, 3 = subtle
      * 0.20, 3 = noticeable
      * 0.35, 3 = strong
      * 0.50, 4 = very strong
-     *
-     * START WITH 0.35 so the effect is obvious.
      */
     postprocess.add(
         Persistence::new(
@@ -121,12 +132,6 @@ pub fn run(
         )
     );
 
-    /*
-     * ENABLED FOR TESTING.
-     *
-     * Once you've confirmed it works, you can
-     * change this back to false.
-     */
     postprocess.set_enabled(
         "persistence",
         false,
@@ -179,6 +184,8 @@ pub fn run(
 
     /*
      * LUT.
+     *
+     * WarmCrt is configured but disabled.
      */
     postprocess.add(
         Lut::new(
@@ -189,6 +196,30 @@ pub fn run(
 
     postprocess.set_enabled(
         "lut",
+        false,
+    );
+
+    /*
+     * CRT curvature.
+     *
+     * amount:
+     *
+     *     0.00 = flat
+     *     0.05 = subtle
+     *     0.10 = noticeable
+     *     0.15 = strong
+     *     0.25 = heavy CRT curvature
+     *
+     * Enabled for testing.
+     */
+    postprocess.add(
+        Curvature::new(
+            0.05,
+        )
+    );
+
+    postprocess.set_enabled(
+        "curvature",
         false,
     );
 
