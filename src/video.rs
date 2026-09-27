@@ -61,7 +61,7 @@ let initial_height =
 
 let mut window =
     Window::new(
-        "NES",
+        "RuNES",
         initial_width,
         initial_height,
         WindowOptions {

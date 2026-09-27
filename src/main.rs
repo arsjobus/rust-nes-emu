@@ -18,7 +18,7 @@ use crate::{
 };
 
 fn print_usage() {
-    eprintln!("Usage: nes <rom.nes> [options]");
+    eprintln!("Usage: runes <rom.nes> [options]");
     eprintln!();
     eprintln!("Post-processing options:");
     eprintln!("  --ntsc                  Enable NTSC/composite color bleed");
@@ -42,11 +42,11 @@ fn print_usage() {
     eprintln!("  NES_MAX_FRAMES=<n>      Stop after <n> frames");
     eprintln!();
     eprintln!("Examples:");
-    eprintln!("  nes game.nes");
-    eprintln!("  nes game.nes --scanlines");
-    eprintln!("  nes game.nes --ntsc --scanlines --curvature");
-    eprintln!("  nes game.nes --bloom --vignette --lut");
-    eprintln!("  nes game.nes --ntsc --persistence --bloom --color-correction \\");
+    eprintln!("  runes game.nes");
+    eprintln!("  runes game.nes --scanlines");
+    eprintln!("  runes game.nes --ntsc --scanlines --curvature");
+    eprintln!("  runes game.nes --bloom --vignette --lut");
+    eprintln!("  runes game.nes --ntsc --persistence --bloom --color-correction \\");
     eprintln!("      --lut --curvature --auto-gradient --scanlines --vignette \\");
     eprintln!("      --sprite-shadows");
 }
