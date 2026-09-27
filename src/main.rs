@@ -1,3 +1,5 @@
+mod apu;
+mod audio;
 mod bus;
 mod cartridge;
 mod cpu;
@@ -8,40 +10,31 @@ mod video;
 
 use std::env;
 
-use cartridge::Cartridge;
-use input::Controller;
-use nes::Nes;
-use video::Video;
+use crate::{
+    cartridge::Cartridge,
+    nes::Nes,
+};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> =
+        env::args().collect();
 
     if args.len() < 2 {
         eprintln!("Usage: nes <rom.nes>");
         return;
     }
 
-    let rom = &args[1];
+    let cart =
+        match Cartridge::load(&args[1]) {
+            Ok(cart) => cart,
 
-    let cart = match Cartridge::load(rom) {
-        Ok(cart) => cart,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            return;
-        }
-    };
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return;
+            }
+        };
 
-    let controller = Controller::new();
+    let nes = Nes::new(cart);
 
-    let mut nes = Nes::new(cart, controller);
-
-    nes.reset();
-
-    let mut video = Video::new();
-
-    let max_frames = env::var("NES_MAX_FRAMES")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok());
-
-    video.run(&mut nes, max_frames);
+    video::run(nes);
 }

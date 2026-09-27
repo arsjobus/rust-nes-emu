@@ -1,109 +1,121 @@
-use std::{
-    thread,
-    time::{
-        Duration,
-        Instant,
-    },
-};
-
 use minifb::{
-    Key,
-    Window,
-    WindowOptions,
+Key,
+Window,
+WindowOptions,
 };
 
-use crate::{
-    input::Controller,
-    nes::Nes,
+use std::{
+env,
+time::{
+Duration,
+Instant,
+},
 };
+
+use crate::audio::Audio;
+use crate::nes::Nes;
 
 const WIDTH: usize = 256;
 const HEIGHT: usize = 240;
 
-const FRAME_TIME: Duration =
-    Duration::from_micros(16_667);
+pub fn run(
+mut nes: Nes,
+) {
+let mut window =
+Window::new(
+"NES",
+WIDTH * 3,
+HEIGHT * 3,
+WindowOptions {
+resize: false,
+scale: minifb::Scale::X1,
+..WindowOptions::default()
+},
+)
+.expect("Could not create window");
 
-pub struct Video {
-    window: Window,
+// New minifb API.
+window.set_target_fps(60);
+
+/*
+ * Start the audio output device.
+ *
+ * This must stay alive for the entire emulator session.
+ * The Audio object owns the CPAL stream.
+ */
+let mut audio =
+    Audio::new()
+        .expect("Could not initialize audio");
+
+let max_frames =
+    env::var("NES_MAX_FRAMES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok());
+
+let mut frame_count = 0u64;
+
+let mut last = Instant::now();
+
+while window.is_open()
+    && !window.is_key_down(Key::Escape)
+{
+    /*
+     * Update controller state before running
+     * the next frame.
+     */
+    nes.update_input(&window);
+
+    /*
+     * Run the CPU/PPU/APU until one video frame
+     * has completed.
+     */
+    nes.run_frame();
+
+    /*
+     * The APU generated PCM samples while the
+     * frame was executing.
+     *
+     * Send those samples to the real audio device.
+     */
+    let samples =
+        nes.take_audio_samples();
+
+    audio.push_samples(&samples);
+
+    /*
+     * Draw the completed video frame.
+     */
+    window
+        .update_with_buffer(
+            nes.framebuffer(),
+            WIDTH,
+            HEIGHT,
+        )
+        .expect("Failed to update window");
+
+    frame_count += 1;
+
+    if let Some(max) = max_frames {
+        if frame_count >= max {
+            break;
+        }
+    }
+
+    /*
+     * Keep the emulator around 60 FPS.
+     *
+     * The audio stream itself runs independently,
+     * so this sleep does not directly play the audio.
+     */
+    let elapsed = last.elapsed();
+
+    if elapsed < Duration::from_micros(16_667) {
+        std::thread::sleep(
+            Duration::from_micros(16_667) - elapsed
+        );
+    }
+
+    last = Instant::now();
 }
 
-impl Video {
-    pub fn new() -> Self {
-        let mut window =
-            Window::new(
-                "NES",
-                WIDTH * 3,
-                HEIGHT * 3,
-                WindowOptions {
-                    resize: false,
-                    scale: minifb::Scale::X1,
-                    ..WindowOptions::default()
-                },
-            )
-            .expect(
-                "Could not create window"
-            );
-
-        window.limit_update_rate(
-            Some(FRAME_TIME)
-        );
-
-        Self {
-            window,
-        }
-    }
-
-    pub fn run(
-        &mut self,
-        nes: &mut Nes,
-        max_frames: Option<u64>,
-    ) {
-        let mut frame_count = 0u64;
-
-        let mut last =
-            Instant::now();
-
-        while self.window.is_open() &&
-              !self.window.is_key_down(
-                  Key::Escape
-              )
-        {
-            nes.bus.controller.update(
-                &self.window
-            );
-
-            nes.run_frame();
-
-            frame_count += 1;
-
-            self.window
-                .update_with_buffer(
-                    nes.framebuffer(),
-                    WIDTH,
-                    HEIGHT,
-                )
-                .expect(
-                    "Failed to update window"
-                );
-
-            if let Some(max) =
-                max_frames
-            {
-                if frame_count >= max {
-                    break;
-                }
-            }
-
-            let elapsed =
-                last.elapsed();
-
-            if elapsed < FRAME_TIME {
-                thread::sleep(
-                    FRAME_TIME - elapsed
-                );
-            }
-
-            last = Instant::now();
-        }
-    }
 }

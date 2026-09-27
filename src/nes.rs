@@ -12,62 +12,61 @@ pub struct Nes {
 }
 
 impl Nes {
-    pub fn new(
-        cartridge: Cartridge,
-        controller: Controller,
-    ) -> Self {
-        let ppu =
-            Ppu::new(cartridge);
+    pub fn new(cart: Cartridge) -> Self {
+        let controller = Controller::new();
+        let ppu = Ppu::new(cart);
 
-        let bus =
-            Bus::new(
-                ppu,
-                controller,
-            );
+        let mut bus = Bus::new(
+            ppu,
+            controller,
+        );
+
+        let mut cpu = Cpu::new();
+
+        cpu.reset(&mut bus);
 
         Self {
-            cpu: Cpu::new(),
+            cpu,
             bus,
         }
-    }
-
-    pub fn reset(&mut self) {
-        self.cpu.reset(
-            &mut self.bus
-        );
     }
 
     pub fn run_frame(&mut self) {
         while !self.bus.ppu.frame_ready {
             let cycles =
-                self.cpu.step(
-                    &mut self.bus
-                );
+                self.cpu.step(&mut self.bus);
 
             self.bus.ppu.catch_up(
                 (cycles * 3) as i32
             );
 
+            self.bus.apu.clock_cpu(cycles);
+
             if self.bus.ppu.nmi_pending &&
                !self.bus.ppu.nmi_fired
             {
-                self.bus.ppu.nmi_pending =
-                    false;
+                self.bus.ppu.nmi_pending = false;
+                self.bus.ppu.nmi_fired = true;
 
-                self.bus.ppu.nmi_fired =
-                    true;
-
-                self.cpu.nmi(
-                    &mut self.bus
-                );
+                self.cpu.nmi(&mut self.bus);
             }
         }
 
-        self.bus.ppu.frame_ready =
-            false;
+        self.bus.ppu.frame_ready = false;
     }
 
     pub fn framebuffer(&self) -> &[u32] {
         &self.bus.ppu.framebuffer
+    }
+
+    pub fn take_audio_samples(&mut self) -> Vec<f32> {
+        self.bus.apu.take_samples()
+    }
+
+    pub fn update_input(
+        &mut self,
+        window: &minifb::Window,
+    ) {
+        self.bus.controller.update(window);
     }
 }
