@@ -32,6 +32,9 @@ fn print_usage() {
     eprintln!("  --vignette              Enable vignette");
     eprintln!("  --sprite-shadows        Enable sprite shadows");
     eprintln!();
+    eprintln!("Controller:");
+    eprintln!("  USB gamepad             Logitech/gamepad controller support");
+    eprintln!();
     eprintln!("Other options:");
     eprintln!("  --help                  Show this help");
     eprintln!();
@@ -49,8 +52,7 @@ fn print_usage() {
 }
 
 fn main() {
-    let args: Vec<String> =
-        env::args().collect();
+    let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
         print_usage();
@@ -62,30 +64,71 @@ fn main() {
         return;
     }
 
-    let rom_path =
-        &args[1];
+    /*
+     * ---------------------------------------------------------
+     * ROM
+     * ---------------------------------------------------------
+     */
 
-    let cart =
-        match Cartridge::load(rom_path) {
-            Ok(cart) => cart,
+    let rom_path = &args[1];
 
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                return;
-            }
-        };
+    let cart = match Cartridge::load(rom_path) {
+        Ok(cart) => cart,
 
-    let mut nes =
-        Nes::new(cart);
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return;
+        }
+    };
 
-    let sprite_shadows =
-        args.iter()
-            .any(|arg| arg == "--sprite-shadows");
+    /*
+     * ---------------------------------------------------------
+     * NES
+     * ---------------------------------------------------------
+     *
+     * The NES owns the Bus.
+     *
+     * The Bus owns the Controller.
+     *
+     * The Controller owns the gilrs USB gamepad interface.
+     *
+     * Therefore main.rs does not need to create an Input
+     * object separately.
+     * ---------------------------------------------------------
+     */
 
-    nes.bus.ppu.options =
-        PpuOptions {
-            sprite_shadows,
-        };
+    let mut nes = Nes::new(cart);
+
+    /*
+     * ---------------------------------------------------------
+     * PPU options
+     * ---------------------------------------------------------
+     */
+
+    let sprite_shadows = args
+        .iter()
+        .any(|arg| arg == "--sprite-shadows");
+
+    nes.bus.ppu.options = PpuOptions {
+        sprite_shadows,
+    };
+
+    /*
+     * ---------------------------------------------------------
+     * Start emulator
+     * ---------------------------------------------------------
+     *
+     * video::run() handles:
+     *
+     *   - window events
+     *   - keyboard input
+     *   - USB controller polling
+     *   - NES frame execution
+     *   - audio
+     *   - post-processing
+     *   - framebuffer scaling
+     * ---------------------------------------------------------
+     */
 
     video::run(
         nes,
