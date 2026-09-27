@@ -74,3 +74,8 @@ src/
 8. --scanlines
 9. --vignette
 10. --sprite-shadows
+
+## Input Devies
+
+1. Keyboard
+2. Gamepad Controller (Logitech)
