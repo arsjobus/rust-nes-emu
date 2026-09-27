@@ -1,0 +1,29 @@
+# Roms dir
+/roms/
+
+# Rust build output
+/target/
+
+# Cargo.lock
+# Keep Cargo.lock for applications/binaries; ignore it for libraries.
+# /Cargo.lock
+
+# Rust Analyzer
+/.vscode/
+
+# IDE/editor files
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+
+# Coverage / profiling
+*.profraw
+*.profdata
+coverage/
