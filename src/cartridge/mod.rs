@@ -5,6 +5,7 @@ mod mapper;
 pub use mapper::{
     GxromMapper,
     Mapper,
+    Mmc2Mapper,
     NromMapper,
     UxromMapper,
 };
@@ -14,6 +15,7 @@ pub enum MapperKind {
     Nrom,
     Uxrom,
     Gxrom,
+    Mmc2,
 }
 
 pub struct Cartridge {
@@ -137,6 +139,12 @@ impl Cartridge {
                     Box::new(GxromMapper::new()),
                 ),
 
+                // Mapper 9 - MMC2
+                9 => (
+                    MapperKind::Mmc2,
+                    Box::new(Mmc2Mapper::new(vertical)),
+                ),
+
                 n => {
                     return Err(
                         format!(
@@ -189,6 +197,14 @@ impl Cartridge {
             addr,
             value,
         );
+
+        // Some mappers (e.g. MMC2/MMC4) can switch mirroring at
+        // runtime via a CPU-mapped register rather than it being
+        // fixed by the iNES header, so re-sync it after every
+        // write.
+        if let Some(vertical) = self.mapper.mirroring_override() {
+            self.mirroring_vertical = vertical;
+        }
     }
 
     pub fn chr_read(&self, addr: u16) -> u8 {

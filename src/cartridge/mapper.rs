@@ -21,6 +21,15 @@ pub trait Mapper {
         value: u8,
         chr_ram: bool,
     );
+
+    /// Mappers that can switch mirroring at runtime (e.g. MMC2)
+    /// return their current setting here; the cartridge checks
+    /// this after every CPU write and syncs it into
+    /// `Cartridge::mirroring_vertical`. Mappers with fixed,
+    /// header-defined mirroring just use the default.
+    fn mirroring_override(&self) -> Option<bool> {
+        None
+    }
 }
 
 pub struct NromMapper;
@@ -251,5 +260,197 @@ impl Mapper for GxromMapper {
             bank * 0x2000 +
             addr as usize
         ] = value;
+    }
+}
+
+
+// ============================================================
+// Mapper 9 - MMC2 (PxROM)
+// ============================================================
+//
+// Used by Punch-Out!!. The distinctive feature of MMC2 is its
+// CHR "latch": each 4 KiB half of the pattern table has two
+// candidate banks ($FD and $FE), and which one is currently
+// mapped in is decided by the *last special tile the PPU
+// fetched*, not by a CPU write.
+//
+// CPU address space:
+//
+//   $8000-$9FFF -> switchable 8 KiB PRG bank
+//   $A000-$BFFF -> fixed to third-from-last 8 KiB PRG bank
+//   $C000-$DFFF -> fixed to second-from-last 8 KiB PRG bank
+//   $E000-$FFFF -> fixed to the last 8 KiB PRG bank
+//
+// CPU writes (only the low 5 bits of the value matter):
+//
+//   $A000-$AFFF -> PRG bank for $8000-$9FFF
+//   $B000-$BFFF -> CHR bank for $0000-$0FFF, latch 0 = $FD
+//   $C000-$CFFF -> CHR bank for $0000-$0FFF, latch 0 = $FE
+//   $D000-$DFFF -> CHR bank for $1000-$1FFF, latch 1 = $FD
+//   $E000-$EFFF -> CHR bank for $1000-$1FFF, latch 1 = $FE
+//   $F000-$FFFF -> mirroring: bit 0 clear = vertical, set = horizontal
+//
+// PPU-side latch behavior:
+//
+//   Reading $0FD8-$0FDF sets latch 0 to $FD (selects $B000 bank).
+//   Reading $0FE8-$0FEF sets latch 0 to $FE (selects $C000 bank).
+//   Reading $1FD8-$1FDF sets latch 1 to $FD (selects $D000 bank).
+//   Reading $1FE8-$1FEF sets latch 1 to $FE (selects $E000 bank).
+//
+// The byte at the triggering address is still served from
+// whichever bank was selected *before* the flip; only later CHR
+// reads see the new bank. This is why the read updates the latch
+// after fetching the data rather than before.
+//
+
+use std::cell::Cell;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Latch {
+    Fd,
+    Fe,
+}
+
+pub struct Mmc2Mapper {
+    prg_bank: u8,
+
+    chr_bank0_fd: u8,
+    chr_bank0_fe: u8,
+    chr_bank1_fd: u8,
+    chr_bank1_fe: u8,
+
+    // The latches flip during CHR *reads*, which the Mapper
+    // trait only hands out `&self` for, so they need interior
+    // mutability rather than plain fields.
+    latch0: Cell<Latch>,
+    latch1: Cell<Latch>,
+
+    mirroring_vertical: bool,
+}
+
+impl Mmc2Mapper {
+    pub fn new(mirroring_vertical: bool) -> Self {
+        Self {
+            prg_bank: 0,
+            chr_bank0_fd: 0,
+            chr_bank0_fe: 0,
+            chr_bank1_fd: 0,
+            chr_bank1_fe: 0,
+            // Real MMC2 boards power on with both latches at $FE.
+            latch0: Cell::new(Latch::Fe),
+            latch1: Cell::new(Latch::Fe),
+            mirroring_vertical,
+        }
+    }
+}
+
+impl Mapper for Mmc2Mapper {
+    fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
+        let bank_count = (prg.len() / 0x2000).max(1);
+
+        let bank = match addr {
+            0x8000..=0x9fff => {
+                (self.prg_bank as usize) % bank_count
+            }
+            0xa000..=0xbfff => bank_count.saturating_sub(3),
+            0xc000..=0xdfff => bank_count.saturating_sub(2),
+            _ => bank_count.saturating_sub(1),
+        };
+
+        let offset = (addr as usize) & 0x1fff;
+
+        prg[bank * 0x2000 + offset]
+    }
+
+    fn cpu_write(
+        &mut self,
+        _prg: &[u8],
+        addr: u16,
+        value: u8,
+    ) {
+        match addr {
+            0xa000..=0xafff => {
+                self.prg_bank = value & 0x1f;
+            }
+            0xb000..=0xbfff => {
+                self.chr_bank0_fd = value & 0x1f;
+            }
+            0xc000..=0xcfff => {
+                self.chr_bank0_fe = value & 0x1f;
+            }
+            0xd000..=0xdfff => {
+                self.chr_bank1_fd = value & 0x1f;
+            }
+            0xe000..=0xefff => {
+                self.chr_bank1_fe = value & 0x1f;
+            }
+            0xf000..=0xffff => {
+                self.mirroring_vertical = value & 1 == 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn chr_read(
+        &self,
+        chr: &[u8],
+        addr: u16,
+    ) -> u8 {
+        let bank_count = (chr.len() / 0x1000).max(1);
+
+        let (bank, half_base) = if addr < 0x1000 {
+            let bank = match self.latch0.get() {
+                Latch::Fd => self.chr_bank0_fd,
+                Latch::Fe => self.chr_bank0_fe,
+            };
+
+            (bank, 0x0000usize)
+        } else {
+            let bank = match self.latch1.get() {
+                Latch::Fd => self.chr_bank1_fd,
+                Latch::Fe => self.chr_bank1_fe,
+            };
+
+            (bank, 0x1000usize)
+        };
+
+        let bank = (bank as usize) % bank_count;
+        let offset = (addr as usize) - half_base;
+
+        let data = chr[bank * 0x1000 + offset];
+
+        // The latch flips *after* this byte is fetched, so it
+        // only affects subsequent reads - matching real hardware.
+        match addr {
+            0x0fd8..=0x0fdf => self.latch0.set(Latch::Fd),
+            0x0fe8..=0x0fef => self.latch0.set(Latch::Fe),
+            0x1fd8..=0x1fdf => self.latch1.set(Latch::Fd),
+            0x1fe8..=0x1fef => self.latch1.set(Latch::Fe),
+            _ => {}
+        }
+
+        data
+    }
+
+    fn chr_write(
+        &mut self,
+        chr: &mut [u8],
+        addr: u16,
+        value: u8,
+        chr_ram: bool,
+    ) {
+        // Boards using mapper 9 always shipped with CHR ROM, but
+        // guard against CHR RAM variants just in case.
+        if !chr_ram {
+            return;
+        }
+
+        let index = (addr as usize) % chr.len();
+
+        chr[index] = value;
+    }
+
+    fn mirroring_override(&self) -> Option<bool> {
+        Some(self.mirroring_vertical)
     }
 }

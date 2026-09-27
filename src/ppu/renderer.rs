@@ -233,7 +233,31 @@ impl Ppu {
             }
         }
 
-        for &index in visible.iter().rev() {
+        // Fetch every visible sprite's pattern bytes first, in
+        // ascending OAM order - the same order the real PPU fetches
+        // them in. This matters for mappers like MMC2 whose CHR
+        // bank is chosen by a latch that flips based on the exact
+        // sequence of pattern-table reads: some games (Punch-Out!!
+        // in particular) rely on sprites being fetched in OAM order
+        // so an earlier sprite's tile can flip the latch before a
+        // later one is fetched. Drawing still happens in reverse
+        // order afterwards, using these pre-fetched bytes, so
+        // on-screen sprite priority (lower OAM index wins overlaps)
+        // is unaffected.
+        struct PreparedSprite {
+            index: usize,
+            sprite_x: i32,
+            horizontal_flip: bool,
+            behind_background: bool,
+            palette: u8,
+            p0: u8,
+            p1: u8,
+        }
+
+        let mut prepared =
+            Vec::with_capacity(visible.len());
+
+        for &index in visible.iter() {
             let sprite_y =
                 self.oam[index * 4] as i32;
 
@@ -317,6 +341,26 @@ impl Ppu {
                     row as u16 +
                     8,
                 );
+
+            prepared.push(PreparedSprite {
+                index,
+                sprite_x,
+                horizontal_flip,
+                behind_background,
+                palette,
+                p0,
+                p1,
+            });
+        }
+
+        for sprite in prepared.iter().rev() {
+            let index = sprite.index;
+            let sprite_x = sprite.sprite_x;
+            let horizontal_flip = sprite.horizontal_flip;
+            let behind_background = sprite.behind_background;
+            let palette = sprite.palette;
+            let p0 = sprite.p0;
+            let p1 = sprite.p1;
 
             for column in 0..8 {
                 let bit =
