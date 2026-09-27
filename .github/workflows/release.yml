@@ -14,9 +14,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # Windows x64
+          # Windows x86_64
           - name: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -25,7 +26,7 @@ jobs:
 
           # macOS Intel
           - name: macos-x86_64
-            os: macos-15-intel
+            os: macos-13
             target: x86_64-apple-darwin
             binary: runes
             output: runes-macos-x86_64
@@ -46,25 +47,70 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Show Cargo package
+        shell: bash
+        run: |
+          echo "Cargo.toml:"
+          cat Cargo.toml
+          echo
+          echo "Cargo packages:"
+          cargo metadata --no-deps --format-version 1
+
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          cargo build \
+            --release \
+            --target ${{ matrix.target }}
+
+      - name: Find binary
+        shell: bash
+        run: |
+          echo "Files produced by Cargo:"
+          find "target/${{ matrix.target }}/release" \
+            -maxdepth 1 \
+            -type f \
+            -print \
+            -exec ls -lh {} \;
 
       - name: Package
         shell: bash
         run: |
+          set -e
+
           mkdir -p dist
 
-          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
-             "dist/${{ matrix.output }}"
+          SOURCE="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          DEST="dist/${{ matrix.output }}"
 
-          echo "Built:"
-          ls -lh dist/
+          echo "Looking for:"
+          echo "$SOURCE"
+
+          if [ ! -f "$SOURCE" ]; then
+            echo ""
+            echo "ERROR: Expected binary does not exist."
+            echo ""
+            echo "Release directory contains:"
+            ls -lah "target/${{ matrix.target }}/release/"
+            echo ""
+            echo "Cargo package:"
+            cargo metadata --no-deps --format-version 1
+            exit 1
+          fi
+
+          cp "$SOURCE" "$DEST"
+
+          chmod +x "$DEST" || true
+
+          echo ""
+          echo "Packaged:"
+          ls -lh "$DEST"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: dist/${{ matrix.output }}
+          if-no-files-found: error
 
   release:
     name: Create GitHub Release
@@ -78,13 +124,23 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Show release files
+      - name: Verify release files
+        shell: bash
         run: |
+          set -e
+
           echo "Release files:"
-          ls -lh dist/
+          ls -lah dist/
+
+          test -f dist/runes-windows-x86_64.exe
+          test -f dist/runes-macos-x86_64
+          test -f dist/runes-macos-arm64
+
+          echo ""
+          echo "All release files are present."
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/runes-windows-x86_64.exe
