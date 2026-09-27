@@ -24,13 +24,6 @@ jobs:
             binary: runes.exe
             output: runes-windows-x86_64.exe
 
-          # macOS Intel
-          - name: macos-x86_64
-            os: macos-13
-            target: x86_64-apple-darwin
-            binary: runes
-            output: runes-macos-x86_64
-
           # macOS Apple Silicon
           - name: macos-arm64
             os: macos-latest
@@ -57,9 +50,6 @@ jobs:
           echo "Cargo packages:"
           cargo metadata --no-deps --format-version 1
 
-      # IMPORTANT:
-      # Do not use "\" for multiline commands unless the shell is bash.
-      # GitHub Actions uses PowerShell by default on Windows.
       - name: Build
         shell: bash
         run: |
@@ -120,7 +110,6 @@ jobs:
 
           cp "$SOURCE" "$DEST"
 
-          # This is harmless on Windows and useful for macOS/Linux.
           chmod +x "$DEST" || true
 
           echo
@@ -158,9 +147,6 @@ jobs:
           echo "Checking Windows binary..."
           test -f dist/runes-windows-x86_64.exe
 
-          echo "Checking macOS Intel binary..."
-          test -f dist/runes-macos-x86_64
-
           echo "Checking macOS Apple Silicon binary..."
           test -f dist/runes-macos-arm64
 
@@ -172,6 +158,5 @@ jobs:
         with:
           files: |
             dist/runes-windows-x86_64.exe
-            dist/runes-macos-x86_64
             dist/runes-macos-arm64
           generate_release_notes: true
