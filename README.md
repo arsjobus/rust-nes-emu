@@ -58,13 +58,13 @@ src/
 
 ## Post Processing Effect Switches
 
---ntsc
---persistence
---bloom
---color-correction
---lut
---curvature
---auto-gradient
---scanlines
---vignette
---sprite-shadows
+1. --ntsc
+2. --persistence
+3. --bloom
+4. --color-correction
+5. --lut
+6. --curvature
+7. --auto-gradient
+8. --scanlines
+9. --vignette
+10. --sprite-shadows
