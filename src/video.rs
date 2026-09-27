@@ -21,6 +21,7 @@ use crate::postprocess::{
     Lut,
     LutPreset,
     Ntsc,
+    Persistence,
     PostProcessPipeline,
     Scanlines,
     Vignette,
@@ -43,29 +44,32 @@ pub fn run(
                 ..WindowOptions::default()
             },
         )
-        .expect("Could not create window");
+        .expect(
+            "Could not create window"
+        );
 
-    // New minifb API.
     window.set_target_fps(60);
 
     /*
-     * Start the audio output device.
+     * Start audio.
      *
-     * This must stay alive for the entire emulator session.
-     * The Audio object owns the CPAL stream.
+     * The Audio object owns the CPAL stream and
+     * must remain alive for the emulator session.
      */
     let mut audio =
         Audio::new()
-            .expect("Could not initialize audio");
+            .expect(
+                "Could not initialize audio"
+            );
 
     /*
      * Post-processing pipeline.
      *
-     * Effects are applied in the order they are added.
-     *
      * PPU framebuffer
      *      ↓
-     * NTSC color bleed
+     * NTSC
+     *      ↓
+     * Persistence
      *      ↓
      * Bloom
      *      ↓
@@ -84,14 +88,6 @@ pub fn run(
 
     /*
      * NTSC / composite color bleed.
-     *
-     * strength:
-     *     How strongly color information bleeds
-     *     horizontally.
-     *
-     * bleed:
-     *     Number of pixels used for the horizontal
-     *     chroma blur.
      */
     postprocess.add(
         Ntsc::new(
@@ -106,17 +102,38 @@ pub fn run(
     );
 
     /*
-     * Bloom
+     * Motion persistence / multi-frame blur.
      *
-     * threshold:
-     *     Minimum brightness required to contribute
-     *     to the glow.
+     * The second argument controls how many
+     * previous frames are retained.
      *
-     * strength:
-     *     Amount of glow added to the image.
+     * 0.10, 3 = subtle
+     * 0.20, 3 = noticeable
+     * 0.35, 3 = strong
+     * 0.50, 4 = very strong
      *
-     * radius:
-     *     Size of the glow around bright pixels.
+     * START WITH 0.35 so the effect is obvious.
+     */
+    postprocess.add(
+        Persistence::new(
+            0.2,
+            3,
+        )
+    );
+
+    /*
+     * ENABLED FOR TESTING.
+     *
+     * Once you've confirmed it works, you can
+     * change this back to false.
+     */
+    postprocess.set_enabled(
+        "persistence",
+        false,
+    );
+
+    /*
+     * Bloom.
      */
     postprocess.add(
         Bloom::new(
@@ -135,16 +152,16 @@ pub fn run(
      * Color correction.
      *
      * brightness:
-     *     0.0 = unchanged.
+     *     0.0 = unchanged
      *
      * contrast:
-     *     1.0 = unchanged.
+     *     1.0 = unchanged
      *
      * saturation:
-     *     1.0 = unchanged.
+     *     1.0 = unchanged
      *
      * gamma:
-     *     1.0 = unchanged.
+     *     1.0 = unchanged
      */
     postprocess.add(
         ColorCorrection::new(
@@ -161,23 +178,7 @@ pub fn run(
     );
 
     /*
-     * LUT
-     *
-     * Built-in LUT-style color transform.
-     *
-     * Available presets include:
-     *
-     * Identity
-     * WarmCrt
-     * CoolCrt
-     * Composite
-     * GameBoy
-     * Amber
-     * HighContrast
-     *
-     * strength:
-     *     0.0 = original colors
-     *     1.0 = full LUT effect
+     * LUT.
      */
     postprocess.add(
         Lut::new(
@@ -192,13 +193,11 @@ pub fn run(
     );
 
     /*
-     * Scanlines
-     *
-     * Darkens alternating horizontal lines.
+     * Scanlines.
      */
     postprocess.add(
         Scanlines::new(
-            0.1
+            0.1,
         )
     );
 
@@ -208,13 +207,11 @@ pub fn run(
     );
 
     /*
-     * Vignette
-     *
-     * Slightly darkens the edges of the screen.
+     * Vignette.
      */
     postprocess.add(
         Vignette::new(
-            0.35
+            0.35,
         )
     );
 
@@ -226,7 +223,9 @@ pub fn run(
     let max_frames =
         env::var("NES_MAX_FRAMES")
             .ok()
-            .and_then(|v| v.parse::<u64>().ok());
+            .and_then(
+                |v| v.parse::<u64>().ok()
+            );
 
     let mut frame_count =
         0u64;
@@ -235,27 +234,26 @@ pub fn run(
         Instant::now();
 
     while window.is_open()
-        && !window.is_key_down(Key::Escape)
+        && !window.is_key_down(
+            Key::Escape
+        )
     {
         /*
-         * Update controller state before running
-         * the next frame.
+         * Update controller state.
          */
         nes.update_input(
             &window
         );
 
         /*
-         * Run the CPU/PPU/APU until one video frame
-         * has completed.
+         * Run CPU/PPU/APU until one
+         * complete video frame exists.
          */
         nes.run_frame();
 
         /*
-         * The APU generated PCM samples while the
-         * frame was executing.
-         *
-         * Send those samples to the real audio device.
+         * Send generated audio samples
+         * to the audio device.
          */
         let samples =
             nes.take_audio_samples();
@@ -265,11 +263,13 @@ pub fn run(
         );
 
         /*
-         * Apply post-processing after the PPU has
-         * completely rendered the current frame.
+         * Apply the post-processing pipeline.
          *
-         * The framebuffer contains 256x240 RGB pixels
-         * stored as u32 values in 0xRRGGBB format.
+         * framebuffer:
+         *     256x240 pixels
+         *
+         * format:
+         *     0xRRGGBB
          */
         postprocess.apply(
             nes.framebuffer_mut(),
@@ -278,7 +278,7 @@ pub fn run(
         );
 
         /*
-         * Draw the completed, post-processed video frame.
+         * Display the processed frame.
          */
         window
             .update_with_buffer(
@@ -301,22 +301,19 @@ pub fn run(
         }
 
         /*
-         * Keep the emulator around 60 FPS.
-         *
-         * The audio stream itself runs independently,
-         * so this sleep does not directly play the audio.
+         * Keep emulator around 60 FPS.
          */
         let elapsed =
             last.elapsed();
 
         if elapsed <
             Duration::from_micros(
-                16_667
+                16_667,
             )
         {
             std::thread::sleep(
                 Duration::from_micros(
-                    16_667
+                    16_667,
                 ) - elapsed
             );
         }

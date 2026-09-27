@@ -4,6 +4,7 @@ pub mod bloom;
 pub mod color_correction;
 pub mod lut;
 pub mod ntsc;
+pub mod persistence;
 pub mod scanlines;
 pub mod vignette;
 
@@ -13,5 +14,6 @@ pub use bloom::Bloom;
 pub use color_correction::ColorCorrection;
 pub use lut::{Lut, LutPreset};
 pub use ntsc::Ntsc;
+pub use persistence::Persistence;
 pub use scanlines::Scanlines;
 pub use vignette::Vignette;
