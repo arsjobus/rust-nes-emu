@@ -59,6 +59,10 @@ impl Nes {
         &self.bus.ppu.framebuffer
     }
 
+    pub fn framebuffer_mut(&mut self) -> &mut [u32] {
+        &mut self.bus.ppu.framebuffer
+    }
+
     pub fn take_audio_samples(&mut self) -> Vec<f32> {
         self.bus.apu.take_samples()
     }

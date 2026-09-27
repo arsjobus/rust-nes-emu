@@ -5,6 +5,7 @@ mod cartridge;
 mod cpu;
 mod input;
 mod nes;
+mod postprocess;
 mod ppu;
 mod video;
 
