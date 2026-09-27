@@ -11,7 +11,7 @@
 ### Build Release
 
 1) `cargo build --release`
-2) `./target/nes roms/mario.nes`
+2) `./target/runes roms/{game}.nes`
 
 ## Project Structure
 
