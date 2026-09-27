@@ -11,6 +11,7 @@
 
 ## Project Structure
 
+```
 src/
 ├── main.rs
 ├── nes.rs
@@ -49,6 +50,7 @@ src/
 ├── input.rs
 ├── bus.rs
 └── video.rs
+```
 
 ## Post Processing Effect Switches
 
