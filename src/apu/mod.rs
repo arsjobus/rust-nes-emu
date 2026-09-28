@@ -58,6 +58,8 @@ pub struct Apu {
     // or underflows.
     sample_rate: f64,
 
+    output_filter: OutputFilter,
+
     sample_clock: f64,
     samples: Vec<f32>,
 
@@ -73,6 +75,103 @@ pub struct Apu {
     mute_triangle: bool,
     mute_noise: bool,
     mute_dmc: bool,
+
+    // NES_DEBUG_DMC=1 prints every DMC-related register write
+    // (with the CPU cycle it happened on) plus a once-per-second
+    // summary of DMC activity to stderr.
+    debug_dmc: bool,
+    debug_fetches: u32,
+    debug_lines: u32,
+
+    // NES_TRACE_FILE=path writes every APU register write and any
+    // events reported via `debug_event` (e.g. NMI) with the CPU
+    // cycle, and NES_DUMP_WAV=path saves the first 20 s of final
+    // output audio as a 16-bit mono WAV. Both are for diagnosis.
+    trace_file: Option<std::io::BufWriter<std::fs::File>>,
+    wav_path: Option<String>,
+    wav_samples: Vec<i16>,
+}
+
+// First-order filters modelling the NES's analog output stage: two
+// high-pass filters (~90 Hz and ~442 Hz) and a ~14 kHz low-pass.
+// The high-pass stages are what remove DC on real hardware - without
+// them, a channel that parks at a non-zero level (e.g. the DMC after
+// software PCM playback via $4011, which Punch-Out uses for the crowd)
+// leaves a constant offset in the mix, and any gap in audio delivery
+// then becomes an audible click.
+#[derive(Clone, Copy)]
+struct HighPass {
+    alpha: f32,
+    prev_in: f32,
+    prev_out: f32,
+}
+
+impl HighPass {
+    fn new(cutoff: f32, sample_rate: f32) -> Self {
+        let rc = 1.0 / (2.0 * std::f32::consts::PI * cutoff);
+        let dt = 1.0 / sample_rate;
+
+        Self {
+            alpha: rc / (rc + dt),
+            prev_in: 0.0,
+            prev_out: 0.0,
+        }
+    }
+
+    fn apply(&mut self, input: f32) -> f32 {
+        let out = self.alpha * (self.prev_out + input - self.prev_in);
+        self.prev_in = input;
+        self.prev_out = out;
+        out
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LowPass {
+    alpha: f32,
+    prev_out: f32,
+}
+
+impl LowPass {
+    fn new(cutoff: f32, sample_rate: f32) -> Self {
+        let rc = 1.0 / (2.0 * std::f32::consts::PI * cutoff);
+        let dt = 1.0 / sample_rate;
+
+        Self {
+            alpha: dt / (rc + dt),
+            prev_out: 0.0,
+        }
+    }
+
+    fn apply(&mut self, input: f32) -> f32 {
+        self.prev_out += self.alpha * (input - self.prev_out);
+        self.prev_out
+    }
+}
+
+#[derive(Clone, Copy)]
+struct OutputFilter {
+    hp90: HighPass,
+    hp442: HighPass,
+    lp14k: LowPass,
+}
+
+impl OutputFilter {
+    fn new(sample_rate: f64) -> Self {
+        let sr = sample_rate as f32;
+
+        Self {
+            hp90: HighPass::new(90.0, sr),
+            hp442: HighPass::new(442.0, sr),
+            lp14k: LowPass::new(14_000.0_f32.min(sr * 0.45), sr),
+        }
+    }
+
+    fn apply(&mut self, input: f32) -> f32 {
+        let x = self.hp90.apply(input);
+        let x = self.hp442.apply(x);
+        self.lp14k.apply(x)
+    }
 }
 
 fn env_flag(name: &str) -> bool {
@@ -94,6 +193,7 @@ impl Apu {
 
             cpu_cycle: 0,
             sample_rate: DEFAULT_SAMPLE_RATE,
+            output_filter: OutputFilter::new(DEFAULT_SAMPLE_RATE),
             sample_clock: 0.0,
             samples: Vec::with_capacity(2048),
 
@@ -102,6 +202,14 @@ impl Apu {
             mute_triangle: env_flag("NES_MUTE_TRIANGLE"),
             mute_noise: env_flag("NES_MUTE_NOISE"),
             mute_dmc: env_flag("NES_MUTE_DMC"),
+            debug_dmc: env_flag("NES_DEBUG_DMC"),
+            debug_fetches: 0,
+            debug_lines: 0,
+            trace_file: std::env::var("NES_TRACE_FILE").ok().and_then(|p| {
+                std::fs::File::create(p).ok().map(std::io::BufWriter::new)
+            }),
+            wav_path: std::env::var("NES_DUMP_WAV").ok(),
+            wav_samples: Vec::new(),
         }
     }
 
@@ -111,6 +219,7 @@ impl Apu {
     // matches what's actually being played back.
     pub fn set_sample_rate(&mut self, sample_rate: f64) {
         self.sample_rate = sample_rate;
+        self.output_filter = OutputFilter::new(sample_rate);
     }
 
     pub fn cpu_read(&mut self, addr: u16) -> u8 {
@@ -120,7 +229,63 @@ impl Apu {
         }
     }
 
+    pub fn debug_event(&mut self, label: &str) {
+        if let Some(file) = self.trace_file.as_mut() {
+            use std::io::Write;
+            let _ = writeln!(file, "{} {}", self.cpu_cycle, label);
+        }
+    }
+
+    fn write_wav(&mut self) {
+        use std::io::Write;
+
+        let Some(path) = self.wav_path.take() else { return };
+        let rate = self.sample_rate as u32;
+        let data_len = (self.wav_samples.len() * 2) as u32;
+
+        let mut bytes = Vec::with_capacity(44 + data_len as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&rate.to_le_bytes());
+        bytes.extend_from_slice(&(rate * 2).to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        for s in &self.wav_samples {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+
+        if let Ok(mut f) = std::fs::File::create(&path) {
+            let _ = f.write_all(&bytes);
+            eprintln!("[apu] wrote {}", path);
+        }
+        self.wav_samples = Vec::new();
+    }
+
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
+        if let Some(file) = self.trace_file.as_mut() {
+            use std::io::Write;
+            if matches!(addr, 0x4000..=0x4017) {
+                let _ = writeln!(file, "{} W {:04x} {:02x}", self.cpu_cycle, addr, value);
+            }
+        }
+
+        if self.debug_dmc
+            && matches!(addr, 0x4010..=0x4013 | 0x4015)
+            && self.debug_lines < 300
+        {
+            self.debug_lines += 1;
+            eprintln!(
+                "[dmc] cycle {:>10}: write ${:04x} = {:02x}",
+                self.cpu_cycle, addr, value
+            );
+        }
+
         match addr {
             0x4000..=0x4003 => {
                 self.pulse1.write(addr - 0x4000, value);
@@ -137,7 +302,13 @@ impl Apu {
             0x4010..=0x4013 => {
                 self.dmc.write(addr - 0x4010, value);
             }
-            0x4015 => self.set_enable(value),
+            0x4015 => {
+                self.set_enable(value);
+
+                if self.debug_dmc && self.debug_lines < 300 {
+                    eprintln!("[dmc]   -> {}", self.dmc.debug_state());
+                }
+            }
             0x4017 => self.frame_counter.write(value),
             _ => {}
         }
@@ -165,11 +336,39 @@ impl Apu {
 
         self.triangle.clock_timer();
 
+        if self.cpu_cycle % 1_789_773 == 0 {
+            if let Some(file) = self.trace_file.as_mut() {
+                use std::io::Write;
+                let _ = file.flush();
+            }
+        }
+
+        if self.debug_dmc && self.cpu_cycle % 1_789_773 == 0 {
+            eprintln!(
+                "[dmc] t={}s fetches/s={} {}",
+                self.cpu_cycle / 1_789_773,
+                self.debug_fetches,
+                self.dmc.debug_state()
+            );
+            self.debug_fetches = 0;
+        }
+
         self.sample_clock += self.sample_rate / CPU_CLOCK;
 
         while self.sample_clock >= 1.0 {
             self.sample_clock -= 1.0;
-            self.samples.push(self.mix());
+            let mixed = self.mix();
+            let filtered = self.output_filter.apply(mixed);
+            let out = filtered.clamp(-1.0, 1.0);
+            self.samples.push(out);
+
+            if self.wav_path.is_some() {
+                self.wav_samples.push((out * 32767.0) as i16);
+
+                if self.wav_samples.len() >= (self.sample_rate as usize) * 20 {
+                    self.write_wav();
+                }
+            }
         }
     }
 
@@ -269,11 +468,18 @@ impl Apu {
      * cycle and, when a fetch is pending, performs the actual
      * `Bus::read` and feeds the byte back in.
      */
+    // True while any APU interrupt source is asserting the CPU's
+    // IRQ line. Only the DMC IRQ is modelled so far.
+    pub fn irq_line(&self) -> bool {
+        self.dmc.irq_flag
+    }
+
     pub fn take_pending_dmc_fetch(&mut self) -> Option<u16> {
         self.dmc.take_pending_fetch()
     }
 
     pub fn feed_dmc_byte(&mut self, byte: u8) {
+        self.debug_fetches += 1;
         self.dmc.feed_byte(byte);
     }
 

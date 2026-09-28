@@ -250,6 +250,53 @@ impl Cpu {
             ]);
     }
 
+    /*
+     * Maskable interrupt (IRQ). Level-triggered: the caller should
+     * invoke this only when an IRQ source is asserted, and it is a
+     * no-op while the interrupt-disable flag is set. Pushes PC and
+     * status (B clear), sets I, and jumps through the $FFFE vector.
+     * Returns true if the interrupt was actually taken.
+     */
+    pub fn irq(
+        &mut self,
+        bus: &mut Bus,
+    ) -> bool {
+        if self.flag(I) {
+            return false;
+        }
+
+        self.push(
+            bus,
+            (self.pc >> 8) as u8,
+        );
+
+        self.push(
+            bus,
+            self.pc as u8,
+        );
+
+        self.push(
+            bus,
+            (self.status & !B) | U,
+        );
+
+        self.set_flag(I, true);
+
+        let lo =
+            bus.read(0xfffe);
+
+        let hi =
+            bus.read(0xffff);
+
+        self.pc =
+            u16::from_le_bytes([
+                lo,
+                hi,
+            ]);
+
+        true
+    }
+
     pub(crate) fn flag(
         &self,
         flag: u8,

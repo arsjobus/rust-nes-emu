@@ -145,6 +145,24 @@ impl Dmc {
         }
     }
 
+    // Diagnostic snapshot, used by the NES_DEBUG_DMC trace.
+    pub(super) fn debug_state(&self) -> String {
+        format!(
+            "enabled={} loop={} irq_en={} irq={} period={} addr={:04x} len={} cur={:04x} remaining={} silence={} out={}",
+            self.enabled,
+            self.loop_flag,
+            self.irq_enabled,
+            self.irq_flag,
+            self.period * 2,
+            self.sample_address,
+            self.sample_length,
+            self.current_address,
+            self.remaining,
+            self.silence,
+            self.output,
+        )
+    }
+
     fn restart(&mut self) {
         self.current_address = self.sample_address;
         self.remaining = self.sample_length;
