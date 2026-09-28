@@ -21,6 +21,21 @@ impl Bus {
         }
     }
 
+    pub fn clock_apu(&mut self, cycles: u32) {
+        for _ in 0..cycles {
+            self.apu.step_cycle();
+
+            if let Some(addr) = self.apu.take_pending_dmc_fetch() {
+                // Real hardware briefly stalls the CPU for this
+                // read (DMA on the same bus); we don't model that
+                // stall, just the byte transfer itself, which is
+                // what actually produces correct sample audio.
+                let byte = self.read(addr);
+                self.apu.feed_dmc_byte(byte);
+            }
+        }
+    }
+
     pub fn read(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1fff => {
