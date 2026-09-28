@@ -49,7 +49,15 @@ impl Nes {
                 self.bus.ppu.nmi_pending = false;
                 self.bus.ppu.nmi_fired = true;
 
+                self.bus.apu.debug_event("NMI");
                 self.cpu.nmi(&mut self.bus);
+            } else if self.bus.apu.irq_line() {
+                // Level-triggered IRQ (currently the DMC's
+                // sample-finished interrupt). Ignored while the
+                // CPU's I flag is set; the game's handler is
+                // expected to acknowledge it by writing $4015 or
+                // $4010, which drops the line.
+                self.cpu.irq(&mut self.bus);
             }
         }
 
