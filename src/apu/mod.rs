@@ -330,11 +330,16 @@ impl Apu {
         if self.cpu_cycle & 1 == 0 {
             self.pulse1.clock_timer();
             self.pulse2.clock_timer();
-            self.noise.clock_timer();
             self.dmc.clock_timer();
         }
 
+        // The triangle and noise timers are clocked every CPU
+        // cycle. (NOISE_PERIODS is already expressed in CPU
+        // cycles, so clocking noise on alternate cycles like the
+        // pulse channels would double every period and drop all
+        // noise an octave.)
         self.triangle.clock_timer();
+        self.noise.clock_timer();
 
         if self.cpu_cycle % 1_789_773 == 0 {
             if let Some(file) = self.trace_file.as_mut() {

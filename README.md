@@ -1,9 +1,5 @@
 ## Rust-NES-Emu
 
-<p align="center">
-  <img src="cover.png" alt="Cover">
-</p>
-
 ## Compatibility (Mapper)
 
 Games which have mappers as:

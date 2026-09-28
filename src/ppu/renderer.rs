@@ -212,24 +212,36 @@ impl Ppu {
                 8
             };
 
-        let mut visible = Vec::new();
+        let mut visible = Vec::with_capacity(8);
 
         for index in 0..64 {
             let sprite_y =
                 self.oam[index * 4] as i32;
 
+            // Sprite data is delayed by one scanline: a sprite
+            // whose OAM Y is N first appears on scanline N + 1
+            // (which is why software writes Y - 1 to OAM). So the
+            // sprite's first row is drawn when `y == sprite_y + 1`.
             let row =
-                y as i32 - sprite_y;
+                y as i32 - (sprite_y + 1);
 
             if row >= 0 &&
                row < height
             {
-                visible.push(index);
-
+                // Only 8 sprites fit on a scanline. Finding a
+                // *ninth* in range is what sets the overflow flag;
+                // the flag must not be raised by a line that has
+                // exactly eight sprites. (Real hardware's overflow
+                // check is famously buggy and can false-positive /
+                // false-negative depending on OAM contents; this is
+                // the intended "more than 8 sprites" behaviour,
+                // which is what well-behaved games expect.)
                 if visible.len() == 8 {
                     self.status |= 0x20;
                     break;
                 }
+
+                visible.push(index);
             }
         }
 
@@ -261,8 +273,9 @@ impl Ppu {
             let sprite_y =
                 self.oam[index * 4] as i32;
 
+            // Same one-scanline delay as in the range check above.
             let mut row =
-                y as i32 - sprite_y;
+                y as i32 - (sprite_y + 1);
 
             let tile =
                 self.oam[index * 4 + 1];
@@ -446,4 +459,153 @@ fn rgb(
     ((r as u32) << 16) |
     ((g as u32) << 8) |
     b as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cartridge::test_support::make_cart;
+
+    const BACKDROP_RGB: u32 = 0x000000; // NES_PALETTE[$0F]
+    const SPRITE_RGB: u32 = 0xecEEec; // NES_PALETTE[$30]
+
+    /// PPU with sprites enabled, a solid opaque tile 0 in CHR RAM,
+    /// a black backdrop and a white sprite colour.
+    fn ppu_with_solid_sprite_tile() -> Ppu {
+        let mut ppu = Ppu::new(make_cart(0, 2, 0, false));
+
+        for row in 0..8u16 {
+            ppu.internal_write(row, 0xff); // plane 0
+            ppu.internal_write(row + 8, 0x00); // plane 1 -> colour 1
+        }
+
+        ppu.palette[0x00] = 0x0f; // backdrop: black
+        ppu.palette[0x11] = 0x30; // sprite palette 0, colour 1: white
+        ppu.mask = 0x10; // sprites on, background off
+
+        ppu
+    }
+
+    fn set_sprite(ppu: &mut Ppu, index: usize, y: u8, x: u8) {
+        ppu.oam[index * 4] = y;
+        ppu.oam[index * 4 + 1] = 0; // tile 0
+        ppu.oam[index * 4 + 2] = 0; // palette 0, in front
+        ppu.oam[index * 4 + 3] = x;
+    }
+
+    fn hide_all_sprites(ppu: &mut Ppu) {
+        for i in 0..64 {
+            ppu.oam[i * 4] = 0xff;
+        }
+    }
+
+    fn pixel(ppu: &Ppu, x: usize, y: usize) -> u32 {
+        ppu.framebuffer[y * WIDTH + x] & 0x00ff_ffff
+    }
+
+    /// Fix 4: a sprite with OAM Y = N is first visible on scanline
+    /// N + 1 and covers scanlines N + 1 ..= N + 8.
+    #[test]
+    fn sprite_is_drawn_one_scanline_below_its_oam_y() {
+        let mut ppu = ppu_with_solid_sprite_tile();
+        hide_all_sprites(&mut ppu);
+        set_sprite(&mut ppu, 0, 20, 100);
+
+        for y in 0..240 {
+            ppu.render_scanline(y);
+        }
+
+        assert_eq!(pixel(&ppu, 100, 20), BACKDROP_RGB, "line N is empty");
+        assert_eq!(pixel(&ppu, 100, 21), SPRITE_RGB, "first row at N+1");
+        assert_eq!(pixel(&ppu, 100, 28), SPRITE_RGB, "last row at N+8");
+        assert_eq!(pixel(&ppu, 100, 29), BACKDROP_RGB, "line N+9 is empty");
+    }
+
+    #[test]
+    fn sprite_y_of_ff_is_never_visible() {
+        let mut ppu = ppu_with_solid_sprite_tile();
+        hide_all_sprites(&mut ppu);
+
+        for y in 0..240 {
+            ppu.render_scanline(y);
+            assert_eq!(pixel(&ppu, 0, y), BACKDROP_RGB);
+        }
+        assert_eq!(ppu.status & 0x20, 0);
+    }
+
+    /// Fix 5: exactly eight sprites on a line must NOT set the
+    /// overflow flag.
+    #[test]
+    fn eight_sprites_on_a_line_do_not_set_overflow() {
+        let mut ppu = ppu_with_solid_sprite_tile();
+        hide_all_sprites(&mut ppu);
+        for i in 0..8 {
+            set_sprite(&mut ppu, i, 49, (i * 10) as u8);
+        }
+
+        ppu.render_scanline(50);
+
+        assert_eq!(ppu.status & 0x20, 0);
+        // All eight are still drawn.
+        for i in 0..8 {
+            assert_eq!(pixel(&ppu, i * 10, 50), SPRITE_RGB);
+        }
+    }
+
+    /// Fix 5: a ninth sprite on the line sets overflow, and only
+    /// the first eight (by OAM order) are drawn.
+    #[test]
+    fn nine_sprites_on_a_line_set_overflow() {
+        let mut ppu = ppu_with_solid_sprite_tile();
+        hide_all_sprites(&mut ppu);
+        for i in 0..9 {
+            set_sprite(&mut ppu, i, 49, (i * 10) as u8);
+        }
+
+        ppu.render_scanline(50);
+
+        assert_ne!(ppu.status & 0x20, 0);
+        assert_eq!(pixel(&ppu, 70, 50), SPRITE_RGB, "8th sprite drawn");
+        assert_eq!(pixel(&ppu, 80, 50), BACKDROP_RGB, "9th sprite dropped");
+    }
+
+    /// Sprites on different lines must not count toward overflow.
+    #[test]
+    fn sprites_on_different_lines_do_not_overflow() {
+        let mut ppu = ppu_with_solid_sprite_tile();
+        hide_all_sprites(&mut ppu);
+        for i in 0..20 {
+            // Spread over 20 distinct, non-overlapping lines.
+            set_sprite(&mut ppu, i, (i * 9) as u8, (i * 4) as u8);
+        }
+
+        for y in 0..240 {
+            ppu.render_scanline(y);
+        }
+
+        assert_eq!(ppu.status & 0x20, 0);
+    }
+
+    /// 8x16 sprites use the same +1 delay.
+    #[test]
+    fn tall_sprites_use_the_same_one_line_delay() {
+        let mut ppu = ppu_with_solid_sprite_tile();
+        // Tile 0 top half is rows 0-7 (solid, written above); make
+        // the bottom half (tile 1) solid too.
+        for row in 0..8u16 {
+            ppu.internal_write(16 + row, 0xff);
+        }
+        ppu.ctrl |= 0x20; // 8x16 sprites
+        hide_all_sprites(&mut ppu);
+        set_sprite(&mut ppu, 0, 30, 60);
+
+        for y in 0..240 {
+            ppu.render_scanline(y);
+        }
+
+        assert_eq!(pixel(&ppu, 60, 30), BACKDROP_RGB);
+        assert_eq!(pixel(&ppu, 60, 31), SPRITE_RGB);
+        assert_eq!(pixel(&ppu, 60, 46), SPRITE_RGB, "16th row at N+16");
+        assert_eq!(pixel(&ppu, 60, 47), BACKDROP_RGB);
+    }
 }

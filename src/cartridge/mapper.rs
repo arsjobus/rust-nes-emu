@@ -210,7 +210,9 @@ impl Mapper for GxromMapper {
             bank * 0x8000 +
             (addr as usize - 0x8000);
 
-        prg[index]
+        // GxROM boards ship with >= 32 KiB of PRG, but a malformed
+        // or trimmed dump must not turn into an out-of-bounds panic.
+        prg[index % prg.len()]
     }
 
     fn cpu_write(
@@ -292,8 +294,8 @@ impl Mapper for GxromMapper {
 //
 // PPU-side latch behavior:
 //
-//   Reading $0FD8-$0FDF sets latch 0 to $FD (selects $B000 bank).
-//   Reading $0FE8-$0FEF sets latch 0 to $FE (selects $C000 bank).
+//   Reading $0FD8 (only) sets latch 0 to $FD (selects $B000 bank).
+//   Reading $0FE8 (only) sets latch 0 to $FE (selects $C000 bank).
 //   Reading $1FD8-$1FDF sets latch 1 to $FD (selects $D000 bank).
 //   Reading $1FE8-$1FEF sets latch 1 to $FE (selects $E000 bank).
 //
@@ -370,7 +372,8 @@ impl Mapper for Mmc2Mapper {
     ) {
         match addr {
             0xa000..=0xafff => {
-                self.prg_bank = value & 0x1f;
+                // PRG select is 4 bits (xxxxPPPP) on MMC2.
+                self.prg_bank = value & 0x0f;
             }
             0xb000..=0xbfff => {
                 self.chr_bank0_fd = value & 0x1f;
@@ -422,8 +425,11 @@ impl Mapper for Mmc2Mapper {
         // The latch flips *after* this byte is fetched, so it
         // only affects subsequent reads - matching real hardware.
         match addr {
-            0x0fd8..=0x0fdf => self.latch0.set(Latch::Fd),
-            0x0fe8..=0x0fef => self.latch0.set(Latch::Fe),
+            // Latch 0 responds to a single address on MMC2 (the
+            // MMC4 responds to the whole $0FD8-$0FDF / $0FE8-$0FEF
+            // range). Latch 1 responds to the full range on both.
+            0x0fd8 => self.latch0.set(Latch::Fd),
+            0x0fe8 => self.latch0.set(Latch::Fe),
             0x1fd8..=0x1fdf => self.latch1.set(Latch::Fd),
             0x1fe8..=0x1fef => self.latch1.set(Latch::Fe),
             _ => {}
