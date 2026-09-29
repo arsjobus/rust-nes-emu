@@ -9,6 +9,7 @@ fn low_addresses_do_not_panic_on_any_mapper() {
         make_cart(2, 8, 0, false),
         make_cart(66, 8, 4, false),
         make_cart(9, 8, 8, false),
+        make_cart(4, 8, 8, false),
     ];
 
     for cart in carts.iter() {
@@ -16,6 +17,40 @@ fn low_addresses_do_not_panic_on_any_mapper() {
             let _ = cart.cpu_read(addr);
         }
     }
+}
+
+#[test]
+fn mmc3_banks_prg_chr_and_generates_irq() {
+    let mut cart = make_cart(4, 8, 4, true);
+    // MMC3 starts with R6/R7 at zero and the last two slots fixed.
+    assert_eq!(cart.cpu_read(0x8000), 0);
+    assert_eq!(cart.cpu_read(0xa000), 0);
+    assert_eq!(cart.cpu_read(0xc000), 7);
+    assert_eq!(cart.cpu_read(0xe000), 7);
+
+    cart.cpu_write(0x8000, 6);
+    cart.cpu_write(0x8001, 3);
+    assert_eq!(cart.cpu_read(0x8000), 1);
+    cart.cpu_write(0x8000, 0x46); // PRG mode 1
+    assert_eq!(cart.cpu_read(0x8000), 7);
+    assert_eq!(cart.cpu_read(0xc000), 1);
+
+    cart.cpu_write(0x8000, 2);
+    cart.cpu_write(0x8001, 16);
+    assert_eq!(cart.chr_read(0x1000), 2);
+    cart.cpu_write(0x8000, 0x82); // invert CHR mapping
+    assert_eq!(cart.chr_read(0x0000), 2);
+
+    cart.cpu_write(0xc000, 2);
+    cart.cpu_write(0xc001, 0);
+    cart.cpu_write(0xe001, 0);
+    cart.clock_scanline();
+    assert!(!cart.irq_pending());
+    cart.clock_scanline();
+    cart.clock_scanline();
+    assert!(cart.irq_pending());
+    cart.cpu_write(0xe000, 0);
+    assert!(!cart.irq_pending());
 }
 
 #[test]

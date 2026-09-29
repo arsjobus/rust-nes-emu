@@ -27,6 +27,16 @@ pub trait Mapper {
     fn prg_ram_enabled(&self) -> bool {
         true
     }
+
+    fn prg_ram_writable(&self) -> bool {
+        self.prg_ram_enabled()
+    }
+
+    fn clock_scanline(&mut self) {}
+
+    fn irq_pending(&self) -> bool {
+        false
+    }
 }
 
 pub struct NromMapper;
@@ -196,6 +206,161 @@ impl Mapper for GxromMapper {
 }
 
 // ============================================================
+// Mapper 4 - MMC3 (TxROM)
+//
+// Supports the six 1 KiB / two 2 KiB CHR registers, four 8 KiB PRG
+// slots, mirroring, PRG RAM enable/protect, and scanline IRQ registers.
+pub struct Mmc3Mapper {
+    bank_select: u8,
+    banks: [u8; 8],
+    prg_mode: bool,
+    chr_inversion: bool,
+    mirroring: Mirroring,
+    ram_enable: bool,
+    ram_write_protect: bool,
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_reload: bool,
+    irq_enabled: bool,
+    irq_pending: bool,
+}
+
+impl Mmc3Mapper {
+    pub fn new(vertical: bool) -> Self {
+        Self {
+            bank_select: 0,
+            banks: [0; 8],
+            prg_mode: false,
+            chr_inversion: false,
+            mirroring: if vertical {
+                Mirroring::Vertical
+            } else {
+                Mirroring::Horizontal
+            },
+            ram_enable: false,
+            ram_write_protect: false,
+            irq_latch: 0,
+            irq_counter: 0,
+            irq_reload: false,
+            irq_enabled: false,
+            irq_pending: false,
+        }
+    }
+
+    fn prg_index(&self, prg: &[u8], addr: u16) -> usize {
+        let count = (prg.len() / 0x2000).max(1);
+        let last = count - 1;
+        let penultimate = count.saturating_sub(2);
+        let r6 = self.banks[6] as usize % count;
+        let r7 = self.banks[7] as usize % count;
+        let slots = if self.prg_mode {
+            [penultimate, r7, r6, last]
+        } else {
+            [r6, r7, penultimate, last]
+        };
+        let slot = ((addr - 0x8000) / 0x2000) as usize;
+        slots[slot] * 0x2000 + (addr as usize & 0x1fff)
+    }
+
+    fn chr_index(&self, chr: &[u8], addr: u16) -> usize {
+        let count = (chr.len() / 0x400).max(1);
+        let mut slots = [0usize; 8];
+        let r0 = (self.banks[0] & 0xfe) as usize;
+        let r1 = (self.banks[1] & 0xfe) as usize;
+        let six = [
+            r0,
+            r0 + 1,
+            r1,
+            r1 + 1,
+            self.banks[2] as usize,
+            self.banks[3] as usize,
+            self.banks[4] as usize,
+            self.banks[5] as usize,
+        ];
+        if self.chr_inversion {
+            slots.copy_from_slice(&[
+                six[4], six[5], six[6], six[7], six[0], six[1], six[2], six[3],
+            ]);
+        } else {
+            slots.copy_from_slice(&six);
+        }
+        (slots[(addr as usize >> 10) & 7] % count) * 0x400 + (addr as usize & 0x3ff)
+    }
+}
+
+impl Mapper for Mmc3Mapper {
+    fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
+        prg[self.prg_index(prg, addr) % prg.len()]
+    }
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        match (addr & 0xe001, addr & 1) {
+            (0x8000, 0) => {
+                self.bank_select = value & 7;
+                self.prg_mode = value & 0x40 != 0;
+                self.chr_inversion = value & 0x80 != 0;
+            }
+            (0x8001, 1) => {
+                self.banks[self.bank_select as usize] = if self.bank_select < 2 {
+                    value & 0xfe
+                } else {
+                    value
+                }
+            }
+            (0xa000, 0) => {
+                self.mirroring = if value & 1 == 0 {
+                    Mirroring::Vertical
+                } else {
+                    Mirroring::Horizontal
+                }
+            }
+            (0xa001, 1) => {
+                self.ram_enable = value & 0x80 != 0;
+                self.ram_write_protect = value & 0x40 != 0;
+            }
+            (0xc000, 0) => self.irq_latch = value,
+            (0xc001, 1) => self.irq_reload = true,
+            (0xe000, 0) => {
+                self.irq_enabled = false;
+                self.irq_pending = false;
+            }
+            (0xe001, 1) => self.irq_enabled = true,
+            _ => {}
+        }
+    }
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
+        chr[self.chr_index(chr, addr) % chr.len()]
+    }
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
+        if chr_ram {
+            let i = self.chr_index(chr, addr) % chr.len();
+            chr[i] = value;
+        }
+    }
+    fn mirroring_override(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
+    }
+    fn prg_ram_enabled(&self) -> bool {
+        self.ram_enable
+    }
+    fn prg_ram_writable(&self) -> bool {
+        self.ram_enable && !self.ram_write_protect
+    }
+    fn clock_scanline(&mut self) {
+        if self.irq_counter == 0 || self.irq_reload {
+            self.irq_counter = self.irq_latch;
+            self.irq_reload = false;
+        } else {
+            self.irq_counter = self.irq_counter.wrapping_sub(1);
+        }
+        if self.irq_counter == 0 && self.irq_enabled {
+            self.irq_pending = true;
+        }
+    }
+    fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+}
+
 // Mapper 9 - MMC2 (PxROM)
 // ============================================================
 //

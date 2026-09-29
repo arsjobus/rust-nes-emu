@@ -280,6 +280,19 @@ impl Ppu {
             self.dot += step;
             dots -= step;
 
+            // MMC3 IRQs are clocked by the PPU address bus when
+            // sprite pattern fetches raise A12, around dot 260.
+            // Our scanline renderer does not model individual fetch
+            // cycles, so approximate that edge at the equivalent
+            // point in the scanline rather than at its beginning.
+            if self.mask & 0x18 != 0
+                && (0..=239).contains(&self.scanline)
+                && old_dot <= 260
+                && 260 < self.dot
+            {
+                self.cart.clock_scanline();
+            }
+
             if self.scanline >= 0 && self.scanline < 240 && !self.sprite0_flagged {
                 if let Some(column) = self.sprite0_col {
                     let threshold = column as i32 + 2;

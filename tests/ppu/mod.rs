@@ -91,3 +91,20 @@ fn nmi_does_not_fire_at_vblank_when_disabled() {
     assert!(ppu.status & 0x80 != 0);
     assert!(!ppu.nmi_pending);
 }
+
+#[test]
+fn mmc3_irq_clocks_near_end_of_visible_scanline() {
+    let mut ppu = Ppu::new(make_cart(4, 8, 8, false));
+    ppu.cart.cpu_write(0xc000, 1); // latch
+    ppu.cart.cpu_write(0xc001, 0); // request reload
+    ppu.cart.cpu_write(0xe001, 0); // enable
+    ppu.mask = 0x18; // rendering enabled
+    ppu.scanline = 0;
+
+    ppu.catch_up(260);
+    assert!(!ppu.cart.irq_pending());
+    ppu.catch_up(1);
+    assert!(!ppu.cart.irq_pending()); // first edge loads the latch
+    ppu.catch_up(341 - 261 + 261);
+    assert!(ppu.cart.irq_pending()); // next scanline edge decrements 1 -> 0
+}

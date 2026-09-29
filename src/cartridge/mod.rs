@@ -2,7 +2,9 @@ use std::fs;
 
 mod mapper;
 
-pub use mapper::{GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, NromMapper, UxromMapper};
+pub use mapper::{
+    GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, Mmc3Mapper, NromMapper, UxromMapper,
+};
 
 const PRG_RAM_SIZE: usize = 8 * 1024;
 
@@ -13,6 +15,7 @@ pub enum MapperKind {
     Gxrom,
     Mmc2,
     Mmc1,
+    Mmc3,
 }
 
 pub struct Cartridge {
@@ -109,6 +112,7 @@ impl Cartridge {
             // Mapper 9 - MMC2
             9 => (MapperKind::Mmc2, Box::new(Mmc2Mapper::new(vertical))),
             1 => (MapperKind::Mmc1, Box::new(Mmc1Mapper::new(vertical))),
+            4 => (MapperKind::Mmc3, Box::new(Mmc3Mapper::new(vertical))),
 
             n => {
                 return Err(format!("Unsupported mapper {}", n));
@@ -177,7 +181,7 @@ impl Cartridge {
             // write here must never reach the mapper (previously
             // a stray write to this range switched GxROM banks).
             0x6000..=0x7fff => {
-                if self.mapper.prg_ram_enabled() {
+                if self.mapper.prg_ram_writable() {
                     self.prg_ram[(addr - 0x6000) as usize] = value;
                 }
             }
@@ -205,6 +209,13 @@ impl Cartridge {
     pub fn chr_write(&mut self, addr: u16, value: u8) {
         self.mapper
             .chr_write(&mut self.chr, addr, value, self.chr_ram);
+    }
+
+    pub(crate) fn clock_scanline(&mut self) {
+        self.mapper.clock_scanline();
+    }
+    pub(crate) fn irq_pending(&self) -> bool {
+        self.mapper.irq_pending()
     }
 }
 
