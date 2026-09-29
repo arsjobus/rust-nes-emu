@@ -3,7 +3,8 @@ use std::fs;
 mod mapper;
 
 pub use mapper::{
-    GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, Mmc3Mapper, NromMapper, UxromMapper,
+    CnromMapper, GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, Mmc3Mapper, NromMapper,
+    UxromMapper,
 };
 
 const PRG_RAM_SIZE: usize = 8 * 1024;
@@ -12,6 +13,7 @@ const PRG_RAM_SIZE: usize = 8 * 1024;
 pub enum MapperKind {
     Nrom,
     Uxrom,
+    Cnrom,
     Gxrom,
     Mmc2,
     Mmc1,
@@ -105,6 +107,9 @@ impl Cartridge {
 
             // Mapper 2 - UxROM
             2 => (MapperKind::Uxrom, Box::new(UxromMapper::new())),
+
+            // Mapper 3 - CNROM
+            3 => (MapperKind::Cnrom, Box::new(CnromMapper::new())),
 
             // Mapper 66 - GxROM
             66 => (MapperKind::Gxrom, Box::new(GxromMapper::new())),

@@ -154,6 +154,52 @@ impl Mapper for UxromMapper {
 }
 
 // ============================================================
+// Mapper 3 - CNROM
+// ============================================================
+// PRG uses the NROM layout; writes select an 8 KiB CHR bank.
+pub struct CnromMapper {
+    chr_bank: u8,
+}
+
+impl CnromMapper {
+    pub fn new() -> Self {
+        Self { chr_bank: 0 }
+    }
+}
+
+impl Mapper for CnromMapper {
+    fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
+        let index = if prg.len() == 0x4000 {
+            (addr as usize - 0x8000) & 0x3fff
+        } else {
+            addr as usize - 0x8000
+        };
+        prg[index % prg.len()]
+    }
+
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.chr_bank = value;
+        }
+    }
+
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
+        let banks = (chr.len() / 0x2000).max(1);
+        let bank = self.chr_bank as usize % banks;
+        chr[bank * 0x2000 + addr as usize % 0x2000]
+    }
+
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
+        if !chr_ram {
+            return;
+        }
+        let banks = (chr.len() / 0x2000).max(1);
+        let bank = self.chr_bank as usize % banks;
+        chr[bank * 0x2000 + addr as usize % 0x2000] = value;
+    }
+}
+
+// ============================================================
 // Mapper 66 - GxROM
 // ============================================================
 
