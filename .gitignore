@@ -1,5 +1,6 @@
 # Roms dir
-/roms/
+/roms/*
+!roms/pong.nes
 
 # Rust build output
 /target/
