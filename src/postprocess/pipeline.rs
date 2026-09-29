@@ -31,6 +31,19 @@ impl PostProcessPipeline {
             effect.set_enabled(enabled);
         }
     }
+
+    pub fn cycle_lut(&mut self) {
+        if let Some(effect) = self.effects.iter_mut().find(|effect| effect.name() == "lut") {
+            effect.cycle_lut();
+        }
+    }
+
+    pub fn lut_label(&self) -> Option<&'static str> {
+        self.effects
+            .iter()
+            .find(|effect| effect.name() == "lut")
+            .and_then(|effect| effect.lut_label())
+    }
 }
 
 impl Default for PostProcessPipeline {

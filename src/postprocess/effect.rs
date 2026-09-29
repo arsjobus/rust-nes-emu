@@ -5,5 +5,11 @@ pub trait PostProcessEffect {
 
     fn set_enabled(&mut self, enabled: bool);
 
+    fn cycle_lut(&mut self) {}
+
+    fn lut_label(&self) -> Option<&'static str> {
+        None
+    }
+
     fn apply(&self, framebuffer: &mut [u32], width: usize, height: usize);
 }

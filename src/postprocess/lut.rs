@@ -1,7 +1,6 @@
 use super::effect::PostProcessEffect;
 
 #[derive(Clone, Copy)]
-#[allow(dead_code)] // Presets are part of the LUT selection API; the CLI currently chooses WarmCrt.
 pub enum LutPreset {
     Identity,
     WarmCrt,
@@ -24,6 +23,18 @@ impl Lut {
             enabled: true,
             preset,
             strength: strength.clamp(0.0, 1.0),
+        }
+    }
+
+    fn preset_name(&self) -> &'static str {
+        match self.preset {
+            LutPreset::Identity => "IDENTITY",
+            LutPreset::WarmCrt => "WARM CRT",
+            LutPreset::CoolCrt => "COOL CRT",
+            LutPreset::Composite => "COMPOSITE",
+            LutPreset::GameBoy => "GAME BOY",
+            LutPreset::Amber => "AMBER",
+            LutPreset::HighContrast => "HIGH CONTRAST",
         }
     }
 
@@ -102,6 +113,22 @@ impl PostProcessEffect for Lut {
 
     fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+    }
+
+    fn cycle_lut(&mut self) {
+        self.preset = match self.preset {
+            LutPreset::Identity => LutPreset::WarmCrt,
+            LutPreset::WarmCrt => LutPreset::CoolCrt,
+            LutPreset::CoolCrt => LutPreset::Composite,
+            LutPreset::Composite => LutPreset::GameBoy,
+            LutPreset::GameBoy => LutPreset::Amber,
+            LutPreset::Amber => LutPreset::HighContrast,
+            LutPreset::HighContrast => LutPreset::Identity,
+        };
+    }
+
+    fn lut_label(&self) -> Option<&'static str> {
+        Some(self.preset_name())
     }
 
     fn apply(&self, framebuffer: &mut [u32], width: usize, height: usize) {

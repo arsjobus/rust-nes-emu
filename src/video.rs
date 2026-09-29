@@ -300,6 +300,7 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     let mut previous_pad_select = false;
     let mut previous_reset = false;
     let mut recorder: Option<crate::recorder::Recorder> = None;
+    let mut lut_notice: Option<(String, Instant)> = None;
 
     /*
      * ---------------------------------------------------------
@@ -427,6 +428,14 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                     }
                 }
             }
+            if nes.bus.controller.take_color_cycle_toggle() {
+                postprocess.set_enabled("color_correction", true);
+                postprocess.set_enabled("lut", true);
+                postprocess.cycle_lut();
+                if let Some(label) = postprocess.lut_label() {
+                    lut_notice = Some((label.to_string(), Instant::now()));
+                }
+            }
             nes.run_frame();
             let samples = nes.take_audio_samples();
             if let Some(audio) = audio.as_mut() {
@@ -451,6 +460,29 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                     1,
                     0xffffff,
                 );
+            }
+            if lut_notice
+                .as_ref()
+                .is_some_and(|(_, shown_at)| shown_at.elapsed() >= Duration::from_secs(3))
+            {
+                lut_notice = None;
+            }
+            if let Some((label, shown_at)) = &lut_notice {
+                let elapsed = shown_at.elapsed();
+                if elapsed < Duration::from_secs(3) {
+                    let alpha = if elapsed <= Duration::from_secs(1) {
+                        1.0
+                    } else {
+                        1.0 - (elapsed.as_secs_f32() - 1.0) / 2.0
+                    };
+                    draw_text_faded(
+                        nes.framebuffer_mut(),
+                        WIDTH,
+                        HEIGHT,
+                        label,
+                        alpha.clamp(0.0, 1.0),
+                    );
+                }
             }
         }
 
@@ -746,6 +778,33 @@ fn draw_text(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+fn draw_text_faded(buffer: &mut [u32], width: usize, height: usize, text: &str, alpha: f32) {
+    let scale = 1;
+    let text_width = text.chars().count() * 6 * scale - scale;
+    let x = width.saturating_sub(text_width) / 2;
+    let y = 8;
+    let alpha = (alpha * 255.0).round() as u32;
+    for (column, ch) in text.chars().enumerate() {
+        for (gy, row) in glyph(ch).iter().enumerate() {
+            for gx in 0..5 {
+                if row & (1 << (4 - gx)) == 0 {
+                    continue;
+                }
+                let px = x + column * 6 + gx;
+                let py = y + gy;
+                if px < width && py < height {
+                    let index = py * width + px;
+                    let pixel = buffer[index];
+                    let r = ((pixel >> 16) & 0xff) * (255 - alpha) / 255 + alpha;
+                    let g = ((pixel >> 8) & 0xff) * (255 - alpha) / 255 + alpha;
+                    let b = (pixel & 0xff) * (255 - alpha) / 255 + alpha;
+                    buffer[index] = (r << 16) | (g << 8) | b;
                 }
             }
         }

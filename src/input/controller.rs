@@ -38,6 +38,8 @@ pub struct Controller {
     right_trigger_pressed: bool,
     left_trigger_pressed: bool,
     record_toggle: bool,
+    color_cycle_toggle: bool,
+    y_button_pressed: bool,
     turbo_frame: u8,
 
     /*
@@ -73,6 +75,8 @@ impl Controller {
             right_trigger_pressed: false,
             left_trigger_pressed: false,
             record_toggle: false,
+            color_cycle_toggle: false,
+            y_button_pressed: false,
             turbo_frame: 0,
             strobe: false,
             shift_register: 0,
@@ -192,6 +196,7 @@ impl Controller {
                     || gamepad.is_pressed(Button::RightTrigger);
                 let left_trigger = gamepad.is_pressed(Button::LeftTrigger2)
                     || gamepad.is_pressed(Button::LeftTrigger);
+                let y_button = gamepad.is_pressed(Button::North);
 
                 let dpad_up = gamepad.is_pressed(Button::DPadUp);
 
@@ -212,6 +217,7 @@ impl Controller {
                     start,
                     right_trigger,
                     left_trigger,
+                    y_button,
                     dpad_up,
                     dpad_down,
                     dpad_left,
@@ -231,6 +237,7 @@ impl Controller {
             start,
             right_trigger,
             left_trigger,
+            y_button,
             dpad_up,
             dpad_down,
             dpad_left,
@@ -241,6 +248,10 @@ impl Controller {
 
         self.set_turbo_trigger(right_trigger);
         self.set_record_trigger(left_trigger);
+        if y_button && !self.y_button_pressed {
+            self.color_cycle_toggle = true;
+        }
+        self.y_button_pressed = y_button;
 
         /*
          * Buttons.
@@ -280,6 +291,10 @@ impl Controller {
 
     pub fn take_record_toggle(&mut self) -> bool {
         std::mem::take(&mut self.record_toggle)
+    }
+
+    pub fn take_color_cycle_toggle(&mut self) -> bool {
+        std::mem::take(&mut self.color_cycle_toggle)
     }
 
     fn set_record_trigger(&mut self, pressed: bool) {
