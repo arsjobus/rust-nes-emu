@@ -1,8 +1,7 @@
 use super::effect::PostProcessEffect;
 
-/// A lightweight CRT pass inspired by common fragment-shader effects.
-/// Adds alternating scanline shading, RGB phosphor stripes, and a soft
-/// edge falloff while keeping the source framebuffer dimensions unchanged.
+/// A lightweight CRT pass applied after nearest-neighbor upscaling.
+/// Its three-pixel beam profile follows each source raster line at 3x scale.
 pub struct Crt {
     enabled: bool,
     strength: f32,
@@ -43,10 +42,11 @@ impl PostProcessEffect for Crt {
         let inv_cy = 1.0 / cy.max(1.0);
 
         for y in 0..height {
-            let scanline = if y % 2 == 1 {
-                1.0 - 0.22 * strength
-            } else {
-                1.0
+            // Each NES raster row occupies three output pixels. Keep the
+            // center of the beam brighter and shade the gaps on either side.
+            let scanline = match y % 3 {
+                1 => 1.0,
+                _ => 1.0 - 0.12 * strength,
             };
             for x in 0..width {
                 let index = y * width + x;
@@ -57,7 +57,7 @@ impl PostProcessEffect for Crt {
 
                 // Simulate the alternating red, green, and blue phosphors.
                 let channel = x % 3;
-                let dim = 1.0 - 0.16 * strength;
+                let dim = 1.0 - 0.035 * strength;
                 let (r, g, b) = match channel {
                     0 => (r, g * dim, b * dim),
                     1 => (r * dim, g, b * dim),
@@ -66,7 +66,7 @@ impl PostProcessEffect for Crt {
 
                 let nx = (x as f32 - cx) * inv_cx;
                 let ny = (y as f32 - cy) * inv_cy;
-                let edge = (1.0 - strength * 0.16 * (nx * nx + ny * ny)).clamp(0.0, 1.0);
+                let edge = (1.0 - strength * 0.12 * (nx * nx + ny * ny)).clamp(0.0, 1.0);
                 let factor = scanline * edge;
                 framebuffer[index] = (((r * factor).round() as u32) << 16)
                     | (((g * factor).round() as u32) << 8)

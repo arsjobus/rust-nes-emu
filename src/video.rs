@@ -12,6 +12,7 @@ use std::{
 use crate::nes::Nes;
 use crate::{audio::Audio, cartridge::Cartridge};
 
+use crate::postprocess::effect::PostProcessEffect;
 use crate::postprocess::{
     AutoGradient, Bloom, ColorCorrection, Crt, Curvature, Lut, LutPreset, Ntsc, Persistence,
     PostProcessPipeline, Scanlines, Vignette,
@@ -21,6 +22,7 @@ pub(crate) const WIDTH: usize = 256;
 pub(crate) const HEIGHT: usize = 240;
 
 const INITIAL_SCALE: usize = 3;
+const CRT_SCALE: usize = 3;
 
 fn option_value<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> T {
     let prefix = format!("{name}=");
@@ -110,12 +112,19 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         })
         .expect("Could not create SDL renderer");
     let texture_creator = canvas.texture_creator();
+    let output_width = WIDTH * CRT_SCALE;
+    let output_height = HEIGHT * CRT_SCALE;
     let mut texture = texture_creator
-        .create_texture_streaming(PixelFormatEnum::RGBA32, WIDTH as u32, HEIGHT as u32)
+        .create_texture_streaming(
+            PixelFormatEnum::RGBA32,
+            output_width as u32,
+            output_height as u32,
+        )
         .expect("Could not create framebuffer texture");
     texture.set_scale_mode(ScaleMode::Nearest);
     let mut event_pump = sdl.event_pump().expect("Could not create SDL event pump");
-    let mut rgba_buffer = vec![0u8; WIDTH * HEIGHT * 4];
+    let mut rgba_buffer = vec![0u8; output_width * output_height * 4];
+    let mut output_framebuffer = vec![0u32; output_width * output_height];
     let mut audio: Option<Audio> = if nes.is_some() {
         audio_subsystem
             .as_ref()
@@ -270,8 +279,8 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     postprocess.set_enabled("vignette", args.iter().any(|arg| arg == "--vignette"));
 
     // CRT shader-style treatment, toggled at runtime with the controller X button.
-    postprocess.add(Crt::new(option_value(args, "--crt-strength", 0.75)));
-    postprocess.set_enabled("crt", args.iter().any(|arg| arg == "--crt"));
+    let mut crt = Crt::new(option_value(args, "--crt-strength", 0.75));
+    crt.set_enabled(args.iter().any(|arg| arg == "--crt"));
 
     /*
      * ---------------------------------------------------------
@@ -441,8 +450,8 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                 }
             }
             if nes.bus.controller.take_crt_toggle() {
-                let enabled = !postprocess.is_enabled("crt");
-                postprocess.set_enabled("crt", enabled);
+                let enabled = !crt.enabled();
+                crt.set_enabled(enabled);
                 lut_notice = Some((
                     format!("CRT {}", if enabled { "ON" } else { "OFF" }),
                     Instant::now(),
@@ -518,14 +527,26 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
             eprintln!("Recording video failed: {error}");
             recorder = None;
         }
-        for (pixel, rgba) in source.iter().zip(rgba_buffer.chunks_exact_mut(4)) {
+        for y in 0..output_height {
+            let source_y = y / CRT_SCALE;
+            for x in 0..output_width {
+                output_framebuffer[y * output_width + x] = source[source_y * WIDTH + x / CRT_SCALE];
+            }
+        }
+        if nes.is_some() && crt.enabled() {
+            crt.apply(&mut output_framebuffer, output_width, output_height);
+        }
+        for (pixel, rgba) in output_framebuffer
+            .iter()
+            .zip(rgba_buffer.chunks_exact_mut(4))
+        {
             rgba[0] = (pixel >> 16) as u8;
             rgba[1] = (pixel >> 8) as u8;
             rgba[2] = *pixel as u8;
             rgba[3] = 255;
         }
         texture
-            .update(None, &rgba_buffer, WIDTH * 4)
+            .update(None, &rgba_buffer, output_width * 4)
             .expect("Failed to update framebuffer texture");
         let (window_width, window_height) = canvas.output_size().unwrap_or((0, 0));
         if window_width > 0 && window_height > 0 {
