@@ -9,6 +9,7 @@ Games which have mappers as:
 - Mapper 2
 - Mapper 3
 - Mapper 4
+- Mapper 5 (partial: PRG/CHR banking and PRG RAM protection)
 - Mapper 7 (Partial)
 - Mapper 9
 - Mapper 66

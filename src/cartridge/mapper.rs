@@ -37,6 +37,117 @@ pub trait Mapper {
     fn irq_pending(&self) -> bool {
         false
     }
+
+    fn cpu_read_ext(&self, _addr: u16) -> Option<u8> {
+        None
+    }
+}
+
+// Mapper 5's common PRG/CHR banking registers. ExRAM rendering modes and
+// expansion audio are handled separately by the PPU/APU and are not modeled here.
+pub struct Mmc5Mapper {
+    prg_mode: u8,
+    chr_mode: u8,
+    protect: [u8; 2],
+    ram_bank: u8,
+    prg: [u8; 4],
+    chr: [u16; 12],
+    chr_upper: u8,
+    ram_enable: bool,
+}
+
+impl Mmc5Mapper {
+    pub fn new() -> Self {
+        Self {
+            prg_mode: 3,
+            chr_mode: 3,
+            protect: [0; 2],
+            ram_bank: 0,
+            prg: [0, 0, 0, 0xff],
+            chr: [0; 12],
+            chr_upper: 0,
+            ram_enable: false,
+        }
+    }
+    fn prg_index(&self, prg: &[u8], addr: u16) -> usize {
+        let count = (prg.len() / 0x2000).max(1);
+        let slot = ((addr - 0x8000) / 0x2000) as usize;
+        let last = count - 1;
+        let (bank, unit) = match self.prg_mode {
+            0 => ((self.prg[3] as usize & 0x7c) | 3, 4),
+            1 if slot < 2 => ((self.prg[1] as usize & 0x7e) | slot, 2),
+            1 => (self.prg[3] as usize & 0x7e | (slot - 2), 1),
+            2 if slot < 2 => (self.prg[1] as usize & 0x7e | slot, 1),
+            2 => (self.prg[slot] as usize, 1),
+            _ => (self.prg[slot] as usize, 1),
+        };
+        let bank = if slot + unit >= 4
+            && (slot == 3 || (self.prg_mode == 0 && slot == 0) || (self.prg_mode == 1 && slot >= 2))
+        {
+            last
+        } else {
+            bank % count
+        };
+        bank * 0x2000 + (addr as usize & 0x1fff)
+    }
+}
+
+impl Mapper for Mmc5Mapper {
+    fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
+        prg[self.prg_index(prg, addr) % prg.len()]
+    }
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        match addr {
+            0x5100 => self.prg_mode = value & 3,
+            0x5101 => self.chr_mode = value & 3,
+            0x5102 => self.protect[0] = value & 3,
+            0x5103 => self.protect[1] = value & 3,
+            0x5113 => {
+                self.ram_bank = value & 7;
+                self.ram_enable = true;
+            }
+            0x5114..=0x5117 => self.prg[(addr - 0x5114) as usize] = value,
+            0x5130 => self.chr_upper = value & 3,
+            0x5120..=0x512b => {
+                self.chr[(addr - 0x5120) as usize] = ((self.chr_upper as u16) << 8) | value as u16
+            }
+            _ => {}
+        }
+    }
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
+        let count = (chr.len() / 0x400).max(1);
+        let slot = (addr as usize >> 10) & 7;
+        let reg = match self.chr_mode {
+            0 => self.chr[7],
+            1 => self.chr[3 + (slot >> 1) * 2],
+            2 => self.chr[1 + (slot >> 2) * 4],
+            _ => self.chr[slot],
+        };
+        chr[((reg as usize * 0x400) + (addr as usize & 0x3ff)) % (count * 0x400)]
+    }
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
+        if chr_ram {
+            let count = (chr.len() / 0x400).max(1);
+            let slot = (addr as usize >> 10) & 7;
+            let reg = match self.chr_mode {
+                0 => self.chr[7],
+                1 => self.chr[3 + (slot >> 1) * 2],
+                2 => self.chr[1 + (slot >> 2) * 4],
+                _ => self.chr[slot],
+            };
+            let i = ((reg as usize * 0x400) + (addr as usize & 0x3ff)) % (count * 0x400);
+            chr[i] = value;
+        }
+    }
+    fn prg_ram_enabled(&self) -> bool {
+        self.ram_enable
+    }
+    fn prg_ram_writable(&self) -> bool {
+        self.ram_enable && self.protect == [2, 1]
+    }
+    fn cpu_read_ext(&self, addr: u16) -> Option<u8> {
+        if addr == 0x5204 { Some(0) } else { None }
+    }
 }
 
 pub struct NromMapper;

@@ -4,7 +4,7 @@ mod mapper;
 
 pub use mapper::{
     AxromMapper, CnromMapper, GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, Mmc3Mapper,
-    NromMapper, UxromMapper,
+    Mmc5Mapper, NromMapper, UxromMapper,
 };
 
 const PRG_RAM_SIZE: usize = 8 * 1024;
@@ -19,6 +19,7 @@ pub enum MapperKind {
     Mmc2,
     Mmc1,
     Mmc3,
+    Mmc5,
 }
 
 pub struct Cartridge {
@@ -122,6 +123,7 @@ impl Cartridge {
             9 => (MapperKind::Mmc2, Box::new(Mmc2Mapper::new(vertical))),
             1 => (MapperKind::Mmc1, Box::new(Mmc1Mapper::new(vertical))),
             4 => (MapperKind::Mmc3, Box::new(Mmc3Mapper::new(vertical))),
+            5 => (MapperKind::Mmc5, Box::new(Mmc5Mapper::new())),
 
             n => {
                 return Err(format!("Unsupported mapper {}", n));
@@ -166,7 +168,7 @@ impl Cartridge {
         match addr {
             // $4020-$5FFF: unmapped on all supported boards.
             // (Real hardware returns open bus; 0 is close enough.)
-            0x0000..=0x5fff => 0,
+            0x0000..=0x5fff => self.mapper.cpu_read_ext(addr).unwrap_or(0),
 
             // $6000-$7FFF: PRG RAM.
             0x6000..=0x7fff => {
@@ -185,7 +187,9 @@ impl Cartridge {
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
             // Unmapped: writes are ignored.
-            0x0000..=0x5fff => {}
+            0x0000..=0x5fff => {
+                self.mapper.cpu_write(&self.prg, addr, value);
+            }
 
             // $6000-$7FFF: PRG RAM. Mapper registers on the
             // boards we support live at $8000 and above, so a
