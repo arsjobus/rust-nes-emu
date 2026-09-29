@@ -17,8 +17,8 @@ use crate::postprocess::{
     PostProcessPipeline, Scanlines, Vignette,
 };
 
-const WIDTH: usize = 256;
-const HEIGHT: usize = 240;
+pub(crate) const WIDTH: usize = 256;
+pub(crate) const HEIGHT: usize = 240;
 
 const INITIAL_SCALE: usize = 3;
 
@@ -299,6 +299,7 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     let mut previous_pad_down = false;
     let mut previous_pad_select = false;
     let mut previous_reset = false;
+    let mut recorder: Option<crate::recorder::Recorder> = None;
 
     /*
      * ---------------------------------------------------------
@@ -409,10 +410,34 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         previous_pad_select = pad_select;
         if let Some(nes) = nes.as_mut() {
             nes.update_input(&keyboard);
+            if nes.bus.controller.take_record_toggle() {
+                if let Some(active) = recorder.take() {
+                    match active.finish() {
+                        Ok(path) => println!("Recording saved: {}", path.display()),
+                        Err(error) => eprintln!("Could not finish recording: {error}"),
+                    }
+                } else {
+                    let sample_rate = audio.as_ref().map_or(48_000, Audio::sample_rate);
+                    match crate::recorder::Recorder::start(sample_rate) {
+                        Ok(started) => {
+                            println!("Recording started");
+                            recorder = Some(started);
+                        }
+                        Err(error) => eprintln!("Could not start recording: {error}"),
+                    }
+                }
+            }
             nes.run_frame();
             let samples = nes.take_audio_samples();
             if let Some(audio) = audio.as_mut() {
                 audio.push_samples(&samples);
+            }
+            let audio_error = recorder
+                .as_mut()
+                .and_then(|recorder| recorder.write_audio(&samples).err());
+            if let Some(error) = audio_error {
+                eprintln!("Recording audio failed: {error}");
+                recorder = None;
             }
             postprocess.apply(nes.framebuffer_mut(), WIDTH, HEIGHT);
             if nes.turbo_enabled() {
@@ -442,6 +467,13 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         let source = nes
             .as_ref()
             .map_or(idle_framebuffer.as_slice(), Nes::framebuffer);
+        let video_error = recorder
+            .as_mut()
+            .and_then(|recorder| recorder.write_frame(source).err());
+        if let Some(error) = video_error {
+            eprintln!("Recording video failed: {error}");
+            recorder = None;
+        }
         for (pixel, rgba) in source.iter().zip(rgba_buffer.chunks_exact_mut(4)) {
             rgba[0] = (pixel >> 16) as u8;
             rgba[1] = (pixel >> 8) as u8;
@@ -468,6 +500,19 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
             canvas
                 .copy(&texture, None, destination)
                 .expect("Failed to render framebuffer");
+            if recorder.is_some() {
+                canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 0, 0));
+                let border = (scale.round() as u32).max(2);
+                for inset in 0..border {
+                    let x = destination.x() + inset as i32;
+                    let y = destination.y() + inset as i32;
+                    let width = destination.width().saturating_sub(inset * 2);
+                    let height = destination.height().saturating_sub(inset * 2);
+                    if width > 0 && height > 0 {
+                        let _ = canvas.draw_rect(Rect::new(x, y, width, height));
+                    }
+                }
+            }
             canvas.present();
         }
 
@@ -503,6 +548,12 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     if let Some(current) = nes.as_ref() {
         if let Err(error) = current.save_battery_ram() {
             eprintln!("Could not save battery RAM: {}", error);
+        }
+    }
+    if let Some(active) = recorder {
+        match active.finish() {
+            Ok(path) => println!("Recording saved: {}", path.display()),
+            Err(error) => eprintln!("Could not finish recording: {error}"),
         }
     }
 }
@@ -699,7 +750,6 @@ fn draw_text(
             }
         }
     }
-
 }
 
 fn glyph(ch: char) -> [u8; 7] {

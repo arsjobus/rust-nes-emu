@@ -36,6 +36,8 @@ pub struct Controller {
     // Right trigger toggles turbo; A and B then pulse while held.
     turbo_enabled: bool,
     right_trigger_pressed: bool,
+    left_trigger_pressed: bool,
+    record_toggle: bool,
     turbo_frame: u8,
 
     /*
@@ -69,6 +71,8 @@ impl Controller {
             keyboard_buttons: NesButtons::default(),
             turbo_enabled: false,
             right_trigger_pressed: false,
+            left_trigger_pressed: false,
+            record_toggle: false,
             turbo_frame: 0,
             strobe: false,
             shift_register: 0,
@@ -186,6 +190,8 @@ impl Controller {
                 let start = gamepad.is_pressed(Button::Start);
                 let right_trigger = gamepad.is_pressed(Button::RightTrigger2)
                     || gamepad.is_pressed(Button::RightTrigger);
+                let left_trigger = gamepad.is_pressed(Button::LeftTrigger2)
+                    || gamepad.is_pressed(Button::LeftTrigger);
 
                 let dpad_up = gamepad.is_pressed(Button::DPadUp);
 
@@ -205,6 +211,7 @@ impl Controller {
                     select,
                     start,
                     right_trigger,
+                    left_trigger,
                     dpad_up,
                     dpad_down,
                     dpad_left,
@@ -223,6 +230,7 @@ impl Controller {
             select,
             start,
             right_trigger,
+            left_trigger,
             dpad_up,
             dpad_down,
             dpad_left,
@@ -232,6 +240,7 @@ impl Controller {
         ) = state;
 
         self.set_turbo_trigger(right_trigger);
+        self.set_record_trigger(left_trigger);
 
         /*
          * Buttons.
@@ -267,6 +276,17 @@ impl Controller {
      */
     pub fn set_button(&mut self, button: NesButton, pressed: bool) {
         self.keyboard_buttons.set(button, pressed);
+    }
+
+    pub fn take_record_toggle(&mut self) -> bool {
+        std::mem::take(&mut self.record_toggle)
+    }
+
+    fn set_record_trigger(&mut self, pressed: bool) {
+        if pressed && !self.left_trigger_pressed {
+            self.record_toggle = true;
+        }
+        self.left_trigger_pressed = pressed;
     }
 
     /*

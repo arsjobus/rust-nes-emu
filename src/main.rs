@@ -7,6 +7,7 @@ mod input;
 mod nes;
 mod postprocess;
 mod ppu;
+mod recorder;
 mod video;
 
 use std::env;
@@ -90,6 +91,9 @@ fn print_usage() {
     eprintln!();
     eprintln!("Controller:");
     eprintln!("  USB gamepad             Logitech/gamepad controller support");
+    eprintln!(
+        "  Left trigger            Start/stop MP4 video and audio recording (requires ffmpeg)"
+    );
     eprintln!();
     eprintln!("Idle screen:");
     eprintln!("  runes                   Show TV static and choose a ROM");
