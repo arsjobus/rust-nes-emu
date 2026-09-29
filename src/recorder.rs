@@ -8,6 +8,8 @@ use std::{
 
 use crate::video::{HEIGHT, WIDTH};
 
+const OUTPUT_HEIGHT: usize = 1080;
+
 pub struct Recorder {
     video_path: PathBuf,
     audio_path: PathBuf,
@@ -69,6 +71,9 @@ impl Recorder {
         self.audio.flush().map_err(|error| error.to_string())?;
         drop(self.video);
         drop(self.audio);
+        let output_width = OUTPUT_HEIGHT * WIDTH / HEIGHT;
+        let scale_filter =
+            format!("scale={output_width}:{OUTPUT_HEIGHT}:flags=neighbor,format=yuv420p,setsar=1");
         let result = Command::new("ffmpeg")
             .args(["-y", "-f", "rawvideo", "-pixel_format", "rgb24"])
             .args([
@@ -83,7 +88,31 @@ impl Recorder {
             .arg(self.sample_rate.to_string())
             .args(["-ac", "1", "-i"])
             .arg(&self.audio_path)
-            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart"])
+            .args(["-vf", scale_filter.as_str()])
+            .args([
+                "-color_range",
+                "tv",
+                "-colorspace",
+                "bt709",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+            ])
+            .args([
+                "-c:v",
+                "libx264",
+                "-crf",
+                "0",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "alac",
+                "-movflags",
+                "+faststart",
+            ])
             .arg(&self.output_path)
             .output()
             .map_err(|error| format!("Could not run ffmpeg: {error}"))?;

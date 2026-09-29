@@ -26,7 +26,7 @@ Start without a ROM to show animated TV static and a ROM picker:
 
 `cargo run --release`
 
-The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. Press the controller's **right trigger** while playing to toggle turbo for held A/B buttons. Press the **left trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory. FFmpeg must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
+The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. Press the controller's **right trigger** while playing to toggle turbo for held A/B buttons. Press the **left trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
 
 ### Battery Saves
 
