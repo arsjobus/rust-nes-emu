@@ -3,8 +3,8 @@ use std::fs;
 mod mapper;
 
 pub use mapper::{
-    CnromMapper, GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, Mmc3Mapper, NromMapper,
-    UxromMapper,
+    AxromMapper, CnromMapper, GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, Mmc3Mapper,
+    NromMapper, UxromMapper,
 };
 
 const PRG_RAM_SIZE: usize = 8 * 1024;
@@ -15,6 +15,7 @@ pub enum MapperKind {
     Uxrom,
     Cnrom,
     Gxrom,
+    Axrom,
     Mmc2,
     Mmc1,
     Mmc3,
@@ -114,6 +115,9 @@ impl Cartridge {
             // Mapper 66 - GxROM
             66 => (MapperKind::Gxrom, Box::new(GxromMapper::new())),
 
+            // Mapper 7 - AxROM
+            7 => (MapperKind::Axrom, Box::new(AxromMapper::new())),
+
             // Mapper 9 - MMC2
             9 => (MapperKind::Mmc2, Box::new(Mmc2Mapper::new(vertical))),
             1 => (MapperKind::Mmc1, Box::new(Mmc1Mapper::new(vertical))),
@@ -135,18 +139,20 @@ impl Cartridge {
             if vertical { "vertical" } else { "horizontal" }
         );
 
+        let mirroring = mapper.mirroring_override().unwrap_or(if vertical {
+            Mirroring::Vertical
+        } else {
+            Mirroring::Horizontal
+        });
+
         Ok(Self {
             prg,
             chr,
             chr_ram,
             prg_ram: [0; PRG_RAM_SIZE],
             mapper_kind,
-            mirroring_vertical: vertical,
-            mirroring: if vertical {
-                Mirroring::Vertical
-            } else {
-                Mirroring::Horizontal
-            },
+            mirroring_vertical: mirroring == Mirroring::Vertical,
+            mirroring,
             mapper,
         })
     }

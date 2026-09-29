@@ -252,6 +252,53 @@ impl Mapper for GxromMapper {
 }
 
 // ============================================================
+// Mapper 7 - AxROM
+// ============================================================
+// The register selects a 32 KiB PRG bank with bits 0-2 and one of
+// the two single-screen nametables with bit 4. CHR is fixed.
+pub struct AxromMapper {
+    register: u8,
+}
+
+impl AxromMapper {
+    pub fn new() -> Self {
+        Self { register: 0 }
+    }
+}
+
+impl Mapper for AxromMapper {
+    fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
+        let bank_count = (prg.len() / 0x8000).max(1);
+        let bank = (self.register as usize & 0x07) % bank_count;
+        let index = bank * 0x8000 + (addr as usize - 0x8000);
+        prg[index % prg.len()]
+    }
+
+    fn cpu_write(&mut self, _prg: &[u8], _addr: u16, value: u8) {
+        self.register = value;
+    }
+
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
+        chr[addr as usize % chr.len()]
+    }
+
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
+        if chr_ram {
+            let index = addr as usize % chr.len();
+            chr[index] = value;
+        }
+    }
+
+    fn mirroring_override(&self) -> Option<Mirroring> {
+        Some(if self.register & 0x10 == 0 {
+            Mirroring::OneScreenLower
+        } else {
+            Mirroring::OneScreenUpper
+        })
+    }
+}
+
+// ============================================================
 // Mapper 4 - MMC3 (TxROM)
 //
 // Supports the six 1 KiB / two 2 KiB CHR registers, four 8 KiB PRG

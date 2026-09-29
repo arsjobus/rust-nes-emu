@@ -8,6 +8,7 @@ fn low_addresses_do_not_panic_on_any_mapper() {
         make_cart(0, 2, 1, false),
         make_cart(2, 8, 0, false),
         make_cart(66, 8, 4, false),
+        make_cart(7, 8, 1, false),
         make_cart(9, 8, 8, false),
         make_cart(4, 8, 8, false),
     ];
@@ -17,6 +18,26 @@ fn low_addresses_do_not_panic_on_any_mapper() {
             let _ = cart.cpu_read(addr);
         }
     }
+}
+
+#[test]
+fn axrom_switches_32k_prg_banks_and_single_screen_mirroring() {
+    let mut cart = make_cart(7, 8, 1, true);
+
+    // Each 32 KiB bank contains adjacent 16 KiB units.
+    assert_eq!(cart.cpu_read(0x8000), 0);
+    assert_eq!(cart.cpu_read(0xc000), 1);
+    assert_eq!(cart.mirroring, super::Mirroring::OneScreenLower);
+
+    cart.cpu_write(0x8000, 2);
+    assert_eq!(cart.cpu_read(0x8000), 4);
+    assert_eq!(cart.cpu_read(0xc000), 5);
+    assert_eq!(cart.mirroring, super::Mirroring::OneScreenLower);
+
+    cart.cpu_write(0xffff, 0x13); // bank 3, upper single-screen page
+    assert_eq!(cart.cpu_read(0x8000), 6);
+    assert_eq!(cart.cpu_read(0xc000), 7);
+    assert_eq!(cart.mirroring, super::Mirroring::OneScreenUpper);
 }
 
 #[test]
