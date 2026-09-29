@@ -26,6 +26,10 @@ impl Nes {
         Self { cpu, bus }
     }
 
+    pub fn save_battery_ram(&self) -> Result<(), String> {
+        self.bus.ppu.cart.save_battery_ram()
+    }
+
     pub fn run_frame(&mut self) {
         while !self.bus.ppu.frame_ready {
             let cycles = self.cpu.step(&mut self.bus);

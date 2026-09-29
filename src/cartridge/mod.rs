@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::PathBuf};
 
 mod mapper;
 
@@ -32,6 +32,8 @@ pub struct Cartridge {
     // first 8 KiB; MMC5 selects 8 KiB banks from the larger region.
     // RAM is not battery-backed and starts zeroed every run.
     pub(crate) prg_ram: Vec<u8>,
+    battery_backed: bool,
+    save_path: Option<PathBuf>,
 
     #[allow(dead_code)] // Exposed cartridge metadata for callers that inspect loaded ROMs.
     pub mapper_kind: MapperKind,
@@ -67,6 +69,7 @@ impl Cartridge {
         let vertical = flags6 & 1 != 0;
 
         let trainer = flags6 & 4 != 0;
+        let battery_backed = flags6 & 2 != 0;
 
         if prg_units == 0 {
             return Err("ROM has no PRG data".into());
@@ -87,6 +90,12 @@ impl Cartridge {
         }
 
         let prg = data[offset..offset + prg_size].to_vec();
+
+        let save_path = battery_backed.then(|| {
+            let mut path = std::path::Path::new(path).to_path_buf();
+            path.set_extension("sav");
+            path
+        });
 
         offset += prg_size;
 
@@ -146,16 +155,52 @@ impl Cartridge {
             Mirroring::Horizontal
         });
 
-        Ok(Self {
+        let mut cartridge = Self {
             prg,
             chr,
             chr_ram,
             prg_ram: vec![0; PRG_RAM_SIZE],
+            battery_backed,
+            save_path,
             mapper_kind,
             mirroring_vertical: mirroring == Mirroring::Vertical,
             mirroring,
             mapper,
-        })
+        };
+        if let Some(path) = &cartridge.save_path {
+            match fs::read(path) {
+                Ok(saved) => {
+                    let count = saved.len().min(cartridge.prg_ram.len());
+                    cartridge.prg_ram[..count].copy_from_slice(&saved[..count]);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => eprintln!("Could not load save {}: {}", path.display(), error),
+            }
+        }
+        Ok(cartridge)
+    }
+
+    /// Atomically persist battery-backed PRG RAM beside the ROM.
+    pub fn save_battery_ram(&self) -> Result<(), String> {
+        if !self.battery_backed {
+            return Ok(());
+        }
+        let path = self.save_path.as_ref().ok_or("Missing save path")?;
+        let mut temporary = path.as_os_str().to_os_string();
+        temporary.push(format!(".{}.tmp", std::process::id()));
+        let temporary = PathBuf::from(temporary);
+        let result = (|| {
+            use std::io::Write;
+            let mut file = fs::File::create(&temporary).map_err(|e| e.to_string())?;
+            file.write_all(&self.prg_ram).map_err(|e| e.to_string())?;
+            file.sync_all().map_err(|e| e.to_string())?;
+            fs::rename(&temporary, path).map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
     }
 
     /// CPU-side cartridge read. The bus forwards all of

@@ -28,6 +28,10 @@ Start without a ROM to show animated TV static and a ROM picker:
 
 The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. Press the controller's **right trigger** while playing to toggle turbo for held A/B buttons. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
 
+### Battery Saves
+
+For ROMs marked as battery-backed in the iNES header, the emulator loads PRG RAM from a `.sav` file beside the ROM (for example, `game.nes` uses `game.sav`). RAM is saved when you quit, return to the ROM menu, or load another game. ROMs without the battery flag do not use save files.
+
 ### Build Release
 
 1) `cargo build --release`

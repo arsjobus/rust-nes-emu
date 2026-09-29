@@ -337,6 +337,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         let reset = keyboard.is_scancode_pressed(Scancode::R);
 
         if nes.is_some() && reset && !previous_reset {
+            if let Some(current) = nes.as_ref() {
+                if let Err(error) = current.save_battery_ram() {
+                    eprintln!("Could not save battery RAM: {}", error);
+                }
+            }
             nes = None;
             roms = find_roms();
             selection = 0;
@@ -374,6 +379,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                 if let Some(path) = roms.get(selection) {
                     match Cartridge::load(&path.to_string_lossy()) {
                         Ok(cart) => {
+                            if let Some(current) = nes.as_ref() {
+                                if let Err(error) = current.save_battery_ram() {
+                                    eprintln!("Could not save battery RAM: {}", error);
+                                }
+                            }
                             nes = Some(Nes::new(cart));
                             menu_gamepad = None;
                             if audio.is_none() {
@@ -488,6 +498,12 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         }
 
         last = Instant::now();
+    }
+
+    if let Some(current) = nes.as_ref() {
+        if let Err(error) = current.save_battery_ram() {
+            eprintln!("Could not save battery RAM: {}", error);
+        }
     }
 }
 
@@ -683,6 +699,7 @@ fn draw_text(
             }
         }
     }
+
 }
 
 fn glyph(ch: char) -> [u8; 7] {
