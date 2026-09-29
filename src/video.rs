@@ -465,6 +465,9 @@ fn draw_idle_overlay(
     selection: usize,
 ) {
     // A compact 5x7 bitmap font keeps the idle screen self-contained.
+    let first_visible = selection
+        .saturating_sub(7)
+        .min(roms.len().saturating_sub(8));
     let lines: Vec<String> = if roms.is_empty() {
         vec![
             "RUNES - NO ROMS FOUND".into(),
@@ -479,9 +482,6 @@ fn draw_idle_overlay(
             "A/START: OPEN  R IN GAME: MENU".into(),
             "O: RESCAN".into(),
         ];
-        let first_visible = selection
-            .saturating_sub(7)
-            .min(roms.len().saturating_sub(8));
         for (visible_index, path) in roms.iter().enumerate().skip(first_visible).take(8) {
             let i = visible_index;
             let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -516,7 +516,7 @@ fn draw_idle_overlay(
             y,
             line,
             scale,
-            if row >= 4 && row - 4 == selection {
+            if row >= 4 && first_visible + row - 4 == selection {
                 0x00ff88
             } else {
                 0xffffff
