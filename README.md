@@ -5,6 +5,7 @@
 Games which have mappers as:
 
 - Mapper 0
+- Mapper 1
 - Mapper 2
 - Mapper 9
 - Mapper 66

@@ -109,3 +109,90 @@ fn mmc2_mirroring_register_still_syncs() {
     cart.cpu_write(0xf000, 0);
     assert!(cart.mirroring_vertical);
 }
+
+fn mmc1_write_register(cart: &mut super::Cartridge, addr: u16, value: u8) {
+    for bit in 0..5 {
+        cart.cpu_write(addr, (value >> bit) & 1);
+    }
+}
+
+#[test]
+fn mmc1_serial_writes_select_prg_banks_and_modes() {
+    let mut cart = make_cart(1, 8, 1, true);
+
+    // Default mode fixes the last bank at $C000 and switches $8000.
+    mmc1_write_register(&mut cart, 0xe000, 2);
+    assert_eq!(cart.cpu_read(0x8000), 2);
+    assert_eq!(cart.cpu_read(0xc000), 7);
+
+    // Mode 2 fixes bank 0 at $8000 and switches the upper bank.
+    mmc1_write_register(&mut cart, 0x8000, 0x08);
+    mmc1_write_register(&mut cart, 0xe000, 3);
+    assert_eq!(cart.cpu_read(0x8000), 0);
+    assert_eq!(cart.cpu_read(0xc000), 3);
+
+    // Modes 0/1 switch an aligned 32 KiB pair; bit 0 is ignored.
+    mmc1_write_register(&mut cart, 0x8000, 0x00);
+    mmc1_write_register(&mut cart, 0xe000, 3);
+    assert_eq!(cart.cpu_read(0x8000), 2);
+    assert_eq!(cart.cpu_read(0xc000), 3);
+}
+
+#[test]
+fn mmc1_reset_restores_switchable_first_prg_bank_mode() {
+    let mut cart = make_cart(1, 8, 1, true);
+    mmc1_write_register(&mut cart, 0xe000, 2);
+    assert_eq!(cart.cpu_read(0x8000), 2);
+
+    cart.cpu_write(0x8000, 0x80);
+    // Reset forces mode 3 but preserves the selected PRG bank.
+    assert_eq!(cart.cpu_read(0x8000), 2);
+    assert_eq!(cart.cpu_read(0xc000), 7);
+
+    // It also discards an incomplete serial value.
+    cart.cpu_write(0xe000, 1);
+    cart.cpu_write(0xe000, 0x80);
+    for bit in 0..5 {
+        cart.cpu_write(0xe000, (1 >> bit) & 1);
+    }
+    assert_eq!(cart.cpu_read(0x8000), 1);
+}
+
+#[test]
+fn mmc1_selects_chr_in_8k_and_4k_modes() {
+    let mut cart = make_cart(1, 2, 4, false);
+
+    // In 8 KiB mode, bit 0 of CHR bank 0 is ignored.
+    mmc1_write_register(&mut cart, 0xa000, 3);
+    assert_eq!(cart.chr_read(0x0000), 1);
+    assert_eq!(cart.chr_read(0x1000), 1);
+
+    // In 4 KiB mode the two halves can select separate banks.
+    mmc1_write_register(&mut cart, 0x8000, 0x1c);
+    mmc1_write_register(&mut cart, 0xa000, 2);
+    mmc1_write_register(&mut cart, 0xc000, 4);
+    assert_eq!(cart.chr_read(0x0000), 1);
+    assert_eq!(cart.chr_read(0x1000), 2);
+}
+
+#[test]
+fn mmc1_mirroring_and_prg_ram_enable_follow_registers() {
+    let mut cart = make_cart(1, 2, 1, false);
+
+    mmc1_write_register(&mut cart, 0x8000, 0x0c); // one-screen lower
+    assert_eq!(cart.mirroring, super::Mirroring::OneScreenLower);
+    mmc1_write_register(&mut cart, 0x8000, 0x0d); // one-screen upper
+    assert_eq!(cart.mirroring, super::Mirroring::OneScreenUpper);
+    mmc1_write_register(&mut cart, 0x8000, 0x0e); // vertical
+    assert_eq!(cart.mirroring, super::Mirroring::Vertical);
+    mmc1_write_register(&mut cart, 0x8000, 0x0f); // horizontal
+    assert_eq!(cart.mirroring, super::Mirroring::Horizontal);
+
+    cart.cpu_write(0x6000, 0x5a);
+    assert_eq!(cart.cpu_read(0x6000), 0x5a);
+    mmc1_write_register(&mut cart, 0xe000, 0x10); // disable PRG RAM
+    cart.cpu_write(0x6000, 0xa5);
+    assert_eq!(cart.cpu_read(0x6000), 0);
+    mmc1_write_register(&mut cart, 0xe000, 0);
+    assert_eq!(cart.cpu_read(0x6000), 0x5a);
+}

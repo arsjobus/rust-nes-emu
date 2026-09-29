@@ -1,3 +1,11 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mirroring {
+    Horizontal,
+    Vertical,
+    OneScreenLower,
+    OneScreenUpper,
+}
+
 pub trait Mapper {
     fn cpu_read(&self, prg: &[u8], addr: u16) -> u8;
 
@@ -12,8 +20,12 @@ pub trait Mapper {
     /// this after every CPU write and syncs it into
     /// `Cartridge::mirroring_vertical`. Mappers with fixed,
     /// header-defined mirroring just use the default.
-    fn mirroring_override(&self) -> Option<bool> {
+    fn mirroring_override(&self) -> Option<Mirroring> {
         None
+    }
+
+    fn prg_ram_enabled(&self) -> bool {
+        true
     }
 }
 
@@ -356,7 +368,128 @@ impl Mapper for Mmc2Mapper {
         chr[index] = value;
     }
 
-    fn mirroring_override(&self) -> Option<bool> {
-        Some(self.mirroring_vertical)
+    fn mirroring_override(&self) -> Option<Mirroring> {
+        Some(if self.mirroring_vertical {
+            Mirroring::Vertical
+        } else {
+            Mirroring::Horizontal
+        })
+    }
+}
+
+// ============================================================
+// Mapper 1 - MMC1
+// ============================================================
+
+pub struct Mmc1Mapper {
+    shift: u8,
+    writes: u8,
+    control: u8,
+    chr_bank0: u8,
+    chr_bank1: u8,
+    prg_bank: u8,
+}
+
+impl Mmc1Mapper {
+    pub fn new(mirroring_vertical: bool) -> Self {
+        Self {
+            shift: 0,
+            writes: 0,
+            control: 0x0c | if mirroring_vertical { 2 } else { 3 },
+            chr_bank0: 0,
+            chr_bank1: 0,
+            prg_bank: 0,
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        match self.control & 3 {
+            0 => Mirroring::OneScreenLower,
+            1 => Mirroring::OneScreenUpper,
+            2 => Mirroring::Vertical,
+            _ => Mirroring::Horizontal,
+        }
+    }
+}
+
+impl Mapper for Mmc1Mapper {
+    fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
+        let banks = (prg.len() / 0x4000).max(1);
+        let selected = self.prg_bank as usize & 0x0f;
+        let bank = match (self.control >> 2) & 3 {
+            0 | 1 => (selected & !1) + (((addr as usize - 0x8000) / 0x4000) & 1),
+            2 => {
+                if addr < 0xc000 {
+                    0
+                } else {
+                    selected
+                }
+            }
+            _ => {
+                if addr < 0xc000 {
+                    selected
+                } else {
+                    banks - 1
+                }
+            }
+        } % banks;
+        let offset = (addr as usize - 0x8000) & 0x3fff;
+        prg[(bank * 0x4000 + offset) % prg.len()]
+    }
+
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        if value & 0x80 != 0 {
+            self.shift = 0;
+            self.writes = 0;
+            self.control |= 0x0c;
+            return;
+        }
+        self.shift |= (value & 1) << self.writes;
+        self.writes += 1;
+        if self.writes == 5 {
+            match (addr >> 13) & 3 {
+                0 => self.control = self.shift,
+                1 => self.chr_bank0 = self.shift,
+                2 => self.chr_bank1 = self.shift,
+                _ => self.prg_bank = self.shift,
+            }
+            self.shift = 0;
+            self.writes = 0;
+        }
+    }
+
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
+        let banks = (chr.len() / 0x1000).max(1);
+        let bank = if self.control & 0x10 == 0 {
+            ((self.chr_bank0 as usize & !1) + (addr as usize / 0x1000)) % banks
+        } else if addr < 0x1000 {
+            self.chr_bank0 as usize % banks
+        } else {
+            self.chr_bank1 as usize % banks
+        };
+        chr[(bank * 0x1000 + (addr as usize & 0x0fff)) % chr.len()]
+    }
+
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
+        if !chr_ram {
+            return;
+        }
+        let banks = (chr.len() / 0x1000).max(1);
+        let bank = if self.control & 0x10 == 0 {
+            ((self.chr_bank0 as usize & !1) + (addr as usize / 0x1000)) % banks
+        } else if addr < 0x1000 {
+            self.chr_bank0 as usize % banks
+        } else {
+            self.chr_bank1 as usize % banks
+        };
+        let index = (bank * 0x1000 + (addr as usize & 0x0fff)) % chr.len();
+        chr[index] = value;
+    }
+
+    fn mirroring_override(&self) -> Option<Mirroring> {
+        Some(self.mirroring())
+    }
+    fn prg_ram_enabled(&self) -> bool {
+        self.prg_bank & 0x10 == 0
     }
 }

@@ -83,10 +83,11 @@ impl Ppu {
 
         let offset = (relative & 0x03ff) as usize;
 
-        let physical = if self.cart.mirroring_vertical {
-            table & 1
-        } else {
-            (table >> 1) & 1
+        let physical = match self.cart.mirroring {
+            crate::cartridge::Mirroring::Vertical => table & 1,
+            crate::cartridge::Mirroring::Horizontal => (table >> 1) & 1,
+            crate::cartridge::Mirroring::OneScreenLower => 0,
+            crate::cartridge::Mirroring::OneScreenUpper => 1,
         };
 
         physical * 0x400 + offset

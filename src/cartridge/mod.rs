@@ -2,7 +2,7 @@ use std::fs;
 
 mod mapper;
 
-pub use mapper::{GxromMapper, Mapper, Mmc2Mapper, NromMapper, UxromMapper};
+pub use mapper::{GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, NromMapper, UxromMapper};
 
 const PRG_RAM_SIZE: usize = 8 * 1024;
 
@@ -12,6 +12,7 @@ pub enum MapperKind {
     Uxrom,
     Gxrom,
     Mmc2,
+    Mmc1,
 }
 
 pub struct Cartridge {
@@ -30,6 +31,7 @@ pub struct Cartridge {
     pub mapper_kind: MapperKind,
 
     pub mirroring_vertical: bool,
+    pub(crate) mirroring: Mirroring,
 
     mapper: Box<dyn Mapper>,
 }
@@ -106,6 +108,7 @@ impl Cartridge {
 
             // Mapper 9 - MMC2
             9 => (MapperKind::Mmc2, Box::new(Mmc2Mapper::new(vertical))),
+            1 => (MapperKind::Mmc1, Box::new(Mmc1Mapper::new(vertical))),
 
             n => {
                 return Err(format!("Unsupported mapper {}", n));
@@ -130,6 +133,11 @@ impl Cartridge {
             prg_ram: [0; PRG_RAM_SIZE],
             mapper_kind,
             mirroring_vertical: vertical,
+            mirroring: if vertical {
+                Mirroring::Vertical
+            } else {
+                Mirroring::Horizontal
+            },
             mapper,
         })
     }
@@ -146,7 +154,13 @@ impl Cartridge {
             0x0000..=0x5fff => 0,
 
             // $6000-$7FFF: PRG RAM.
-            0x6000..=0x7fff => self.prg_ram[(addr - 0x6000) as usize],
+            0x6000..=0x7fff => {
+                if self.mapper.prg_ram_enabled() {
+                    self.prg_ram[(addr - 0x6000) as usize]
+                } else {
+                    0
+                }
+            }
 
             // $8000-$FFFF: PRG ROM, banked by the mapper.
             0x8000..=0xffff => self.mapper.cpu_read(&self.prg, addr),
@@ -163,7 +177,9 @@ impl Cartridge {
             // write here must never reach the mapper (previously
             // a stray write to this range switched GxROM banks).
             0x6000..=0x7fff => {
-                self.prg_ram[(addr - 0x6000) as usize] = value;
+                if self.mapper.prg_ram_enabled() {
+                    self.prg_ram[(addr - 0x6000) as usize] = value;
+                }
             }
 
             // $8000-$FFFF: mapper registers.
@@ -174,8 +190,9 @@ impl Cartridge {
                 // mirroring at runtime via a CPU-mapped register
                 // rather than it being fixed by the iNES header,
                 // so re-sync it after every register write.
-                if let Some(vertical) = self.mapper.mirroring_override() {
-                    self.mirroring_vertical = vertical;
+                if let Some(mirroring) = self.mapper.mirroring_override() {
+                    self.mirroring_vertical = mirroring == Mirroring::Vertical;
+                    self.mirroring = mirroring;
                 }
             }
         }
