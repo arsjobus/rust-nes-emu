@@ -94,6 +94,8 @@ fn print_usage() {
     eprintln!(
         "  Left trigger            Start/stop MP4 video and audio recording (requires ffmpeg)"
     );
+    eprintln!("  0                       Start/stop MP4 video and audio recording");
+    eprintln!("  Left Shift              Toggle turbo for held A/B buttons");
     eprintln!();
     eprintln!("Idle screen:");
     eprintln!("  runes                   Show TV static and choose a ROM");

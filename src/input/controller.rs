@@ -37,6 +37,8 @@ pub struct Controller {
     turbo_enabled: bool,
     right_trigger_pressed: bool,
     left_trigger_pressed: bool,
+    keyboard_turbo_pressed: bool,
+    keyboard_record_pressed: bool,
     record_toggle: bool,
     color_cycle_toggle: bool,
     y_button_pressed: bool,
@@ -74,6 +76,8 @@ impl Controller {
             turbo_enabled: false,
             right_trigger_pressed: false,
             left_trigger_pressed: false,
+            keyboard_turbo_pressed: false,
+            keyboard_record_pressed: false,
             record_toggle: false,
             color_cycle_toggle: false,
             y_button_pressed: false,
@@ -291,6 +295,20 @@ impl Controller {
 
     pub fn take_record_toggle(&mut self) -> bool {
         std::mem::take(&mut self.record_toggle)
+    }
+
+    pub fn set_keyboard_record_trigger(&mut self, pressed: bool) {
+        if pressed && !self.keyboard_record_pressed {
+            self.record_toggle = true;
+        }
+        self.keyboard_record_pressed = pressed;
+    }
+
+    pub fn set_keyboard_turbo_trigger(&mut self, pressed: bool) {
+        if pressed && !self.keyboard_turbo_pressed {
+            self.turbo_enabled = !self.turbo_enabled;
+        }
+        self.keyboard_turbo_pressed = pressed;
     }
 
     pub fn take_color_cycle_toggle(&mut self) -> bool {
