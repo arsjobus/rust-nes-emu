@@ -1,6 +1,7 @@
 use gilrs::{Button, EventType, Gilrs};
 use sdl2::{
     event::Event, keyboard::Scancode, pixels::PixelFormatEnum, rect::Rect, render::ScaleMode,
+    rwops::RWops, surface::Surface,
 };
 use std::{fs, path::PathBuf};
 
@@ -23,6 +24,13 @@ pub(crate) const HEIGHT: usize = 240;
 
 const INITIAL_SCALE: usize = 3;
 const CRT_SCALE: usize = 3;
+
+fn set_window_icon(window: &mut sdl2::video::Window) {
+    let mut icon_data = RWops::from_bytes(include_bytes!("../assets/runes-icon.bmp"))
+        .expect("Could not read bundled window icon");
+    let icon = Surface::load_bmp_rw(&mut icon_data).expect("Could not decode bundled window icon");
+    window.set_icon(&icon);
+}
 
 fn option_value<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> T {
     let prefix = format!("{name}=");
@@ -78,7 +86,7 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     let sdl = sdl2::init().expect("Could not initialize SDL");
     let video = sdl.video().expect("Could not initialize SDL video");
     let audio_subsystem = sdl.audio().ok();
-    let window = video
+    let mut window = video
         .window(
             "RuNES",
             (WIDTH * INITIAL_SCALE) as u32,
@@ -89,13 +97,14 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         .allow_highdpi()
         .build()
         .expect("Could not create window");
+    set_window_icon(&mut window);
     let mut canvas = window
         .into_canvas()
         .accelerated()
         .present_vsync()
         .build()
         .or_else(|_| {
-            video
+            let mut window = video
                 .window(
                     "RuNES",
                     (WIDTH * INITIAL_SCALE) as u32,
@@ -105,10 +114,9 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                 .resizable()
                 .allow_highdpi()
                 .build()
-                .unwrap()
-                .into_canvas()
-                .software()
-                .build()
+                .unwrap();
+            set_window_icon(&mut window);
+            window.into_canvas().software().build()
         })
         .expect("Could not create SDL renderer");
     let texture_creator = canvas.texture_creator();
