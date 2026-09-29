@@ -46,44 +46,27 @@ SDL2 is built from source through the Rust SDL2 bindings. Building requires a C 
 ## Project Structure
 
 ```
-src/
-├── main.rs
-├── nes.rs
-├── cpu/
-│   ├── mod.rs
-│   ├── instructions.rs
-│   └── addressing.rs
-├── postprocess/
-│   ├── auto_gradient.rs
-│   ├── bloom.rs
-│   ├── color_correction.rs
-│   ├── curvature.rs
-│   ├── effect.rs
-│   ├── lut.rs
-│   ├── mod.rs
-│   ├── ntcs.rs
-│   ├── persistence.rs
-│   ├── pipeline.rs
-│   ├── scanlines.rs
-│   ├── vignette.rs
-├── ppu/
-│   ├── mod.rs
-│   └── renderer.rs
-├── cartridge/
-│   ├── mod.rs
-│   └── mapper.rs
-├── apu/
-│   ├── mod.rs
-│   ├── pulse.rs
-│   ├── triangle.rs
-│   ├── noise.rs
-│   ├── dmc.rs
-│   └── frame_counter.rs
-├── audio.rs
-├── bus.rs
-├── input.rs
-├── bus.rs
-└── video.rs
+.
+├── docs/
+│   └── GETTING_STARTED.md
+├── extras/
+├── roms/                  # Local/sample ROMs; user ROMs are not required
+├── src/
+│   ├── main.rs            # Application entry point and command-line setup
+│   ├── nes.rs             # Top-level emulator coordination
+│   ├── bus.rs             # CPU memory and device bus
+│   ├── audio.rs
+│   ├── recorder.rs        # Audio/video recording
+│   ├── video.rs           # Window and frame presentation
+│   ├── apu/               # Audio processing unit channels and timing
+│   ├── cartridge/         # ROM loading and mapper implementations
+│   ├── cpu/               # CPU core, instructions, and addressing
+│   ├── input/             # Keyboard, controller, and input mapping
+│   ├── ppu/               # Picture processing and rendering
+│   └── postprocess/       # Display effects and image processing
+├── tests/                 # Integration tests grouped by subsystem
+├── Cargo.toml
+└── README.md
 ```
 
 ## Post Processing Effect Switches
