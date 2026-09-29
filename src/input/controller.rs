@@ -33,6 +33,11 @@ pub struct Controller {
      */
     keyboard_buttons: NesButtons,
 
+    // Right trigger toggles turbo; A and B then pulse while held.
+    turbo_enabled: bool,
+    right_trigger_pressed: bool,
+    turbo_frame: u8,
+
     /*
      * NES $4016 controller protocol.
      */
@@ -62,6 +67,9 @@ impl Controller {
             active_rumbles: Vec::new(),
             usb_buttons: NesButtons::default(),
             keyboard_buttons: NesButtons::default(),
+            turbo_enabled: false,
+            right_trigger_pressed: false,
+            turbo_frame: 0,
             strobe: false,
             shift_register: 0,
         };
@@ -88,6 +96,7 @@ impl Controller {
      */
     pub fn update(&mut self) {
         self.prune_rumbles();
+        self.turbo_frame = (self.turbo_frame + 1) % 6;
 
         /*
          * First process gilrs events.
@@ -175,6 +184,8 @@ impl Controller {
                 let select = gamepad.is_pressed(Button::Select);
 
                 let start = gamepad.is_pressed(Button::Start);
+                let right_trigger = gamepad.is_pressed(Button::RightTrigger2)
+                    || gamepad.is_pressed(Button::RightTrigger);
 
                 let dpad_up = gamepad.is_pressed(Button::DPadUp);
 
@@ -189,7 +200,16 @@ impl Controller {
                 let stick_y = gamepad.value(Axis::LeftStickY);
 
                 (
-                    a, b, select, start, dpad_up, dpad_down, dpad_left, dpad_right, stick_x,
+                    a,
+                    b,
+                    select,
+                    start,
+                    right_trigger,
+                    dpad_up,
+                    dpad_down,
+                    dpad_left,
+                    dpad_right,
+                    stick_x,
                     stick_y,
                 )
             }
@@ -197,8 +217,21 @@ impl Controller {
             None => return,
         };
 
-        let (a, b, select, start, dpad_up, dpad_down, dpad_left, dpad_right, stick_x, stick_y) =
-            state;
+        let (
+            a,
+            b,
+            select,
+            start,
+            right_trigger,
+            dpad_up,
+            dpad_down,
+            dpad_left,
+            dpad_right,
+            stick_x,
+            stick_y,
+        ) = state;
+
+        self.set_turbo_trigger(right_trigger);
 
         /*
          * Buttons.
@@ -242,9 +275,21 @@ impl Controller {
      * ---------------------------------------------------------
      */
     fn handle_button(&mut self, button: Button, pressed: bool) {
+        if matches!(button, Button::RightTrigger | Button::RightTrigger2) {
+            // Poll both trigger variants together in poll_gamepad_state so
+            // mappings exposing both cannot produce duplicate toggles.
+            return;
+        }
         if let Some(nes_button) = map_button(button) {
             self.usb_buttons.set(nes_button, pressed);
         }
+    }
+
+    fn set_turbo_trigger(&mut self, pressed: bool) {
+        if pressed && !self.right_trigger_pressed {
+            self.turbo_enabled = !self.turbo_enabled;
+        }
+        self.right_trigger_pressed = pressed;
     }
 
     /*
@@ -325,10 +370,11 @@ impl Controller {
      * ---------------------------------------------------------
      */
     pub fn buttons(&self) -> NesButtons {
+        let turbo_pulse = !self.turbo_enabled || self.turbo_frame < 3;
         NesButtons {
-            a: self.usb_buttons.b || self.keyboard_buttons.a,
+            a: (self.usb_buttons.b || self.keyboard_buttons.a) && turbo_pulse,
 
-            b: self.usb_buttons.a || self.keyboard_buttons.b,
+            b: (self.usb_buttons.a || self.keyboard_buttons.b) && turbo_pulse,
 
             select: self.usb_buttons.select || self.keyboard_buttons.select,
 
