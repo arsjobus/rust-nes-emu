@@ -34,6 +34,7 @@ fn rom_argument(args: &[String]) -> Option<&str> {
         "--auto-gradient-horizontal",
         "--scanlines-strength",
         "--vignette-strength",
+        "--crt-strength",
     ];
     let mut skip_value = false;
     for arg in args.iter().skip(1) {
@@ -86,6 +87,8 @@ fn print_usage() {
     eprintln!("  --auto-gradient         Enable automatic screen gradient");
     eprintln!("  --scanlines             Enable scanlines");
     eprintln!("  --vignette              Enable vignette");
+    eprintln!("  --crt                   Enable CRT phosphor/scanline effect");
+    eprintln!("  --crt-strength <0-1>    CRT effect intensity (default: 0.75)");
     eprintln!("  --<effect>-strength <n> Configure effect strength where available");
     eprintln!("  Values can be passed as --option value or --option=value.");
     eprintln!();
@@ -96,6 +99,7 @@ fn print_usage() {
     );
     eprintln!("  0                       Start/stop MP4 video and audio recording");
     eprintln!("  Left Shift              Toggle turbo for held A/B buttons");
+    eprintln!("  Controller X            Toggle CRT effect while playing");
     eprintln!();
     eprintln!("Idle screen:");
     eprintln!("  runes                   Show TV static and choose a ROM");

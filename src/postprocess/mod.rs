@@ -1,6 +1,7 @@
 pub mod auto_gradient;
 pub mod bloom;
 pub mod color_correction;
+pub mod crt;
 pub mod curvature;
 pub mod effect;
 pub mod lut;
@@ -13,6 +14,7 @@ pub mod vignette;
 pub use auto_gradient::AutoGradient;
 pub use bloom::Bloom;
 pub use color_correction::ColorCorrection;
+pub use crt::Crt;
 pub use curvature::Curvature;
 pub use lut::{Lut, LutPreset};
 pub use ntsc::Ntsc;

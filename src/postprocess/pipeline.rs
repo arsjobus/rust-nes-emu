@@ -32,8 +32,19 @@ impl PostProcessPipeline {
         }
     }
 
+    pub fn is_enabled(&self, name: &str) -> bool {
+        self.effects
+            .iter()
+            .find(|effect| effect.name() == name)
+            .is_some_and(|effect| effect.enabled())
+    }
+
     pub fn cycle_lut(&mut self) {
-        if let Some(effect) = self.effects.iter_mut().find(|effect| effect.name() == "lut") {
+        if let Some(effect) = self
+            .effects
+            .iter_mut()
+            .find(|effect| effect.name() == "lut")
+        {
             effect.cycle_lut();
         }
     }

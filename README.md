@@ -28,7 +28,7 @@ Start without a ROM to show animated TV static and a ROM picker:
 
 `cargo run --release`
 
-The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** or the controller's **left trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Press **Left Shift** or the controller's **right trigger** to toggle turbo for held A/B buttons. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
+The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** or the controller's **left trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Press **Left Shift** or the controller's **right trigger** to toggle turbo for held A/B buttons. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. Press controller **X** to toggle the CRT phosphor, scanline, and edge-shading effect. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
 
 ### Battery Saves
 
@@ -95,6 +95,7 @@ src/
 7. --auto-gradient
 8. --scanlines
 9. --vignette
+10. --crt
 
 Effects accept configurable values using either `--option value` or
 `--option=value`. For example, `--bloom --bloom-strength 0.4` adjusts bloom
@@ -107,8 +108,8 @@ Other parameters include `--bloom-threshold`, `--bloom-radius`,
 `--persistence-frames`, `--color-brightness`, `--color-contrast`,
 `--color-saturation`, `--color-gamma`, `--curvature-strength`,
 `--auto-gradient-strength`, `--auto-gradient-vertical`,
-`--auto-gradient-horizontal`, `--scanlines-strength`, and
-`--vignette-strength`.
+`--auto-gradient-horizontal`, `--scanlines-strength`, `--vignette-strength`,
+and `--crt-strength`.
 
 ## Input Devies
 

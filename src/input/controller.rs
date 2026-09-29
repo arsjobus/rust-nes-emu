@@ -41,6 +41,8 @@ pub struct Controller {
     keyboard_record_pressed: bool,
     record_toggle: bool,
     color_cycle_toggle: bool,
+    crt_toggle: bool,
+    x_button_pressed: bool,
     y_button_pressed: bool,
     turbo_frame: u8,
 
@@ -80,6 +82,8 @@ impl Controller {
             keyboard_record_pressed: false,
             record_toggle: false,
             color_cycle_toggle: false,
+            crt_toggle: false,
+            x_button_pressed: false,
             y_button_pressed: false,
             turbo_frame: 0,
             strobe: false,
@@ -201,6 +205,7 @@ impl Controller {
                 let left_trigger = gamepad.is_pressed(Button::LeftTrigger2)
                     || gamepad.is_pressed(Button::LeftTrigger);
                 let y_button = gamepad.is_pressed(Button::North);
+                let x_button = gamepad.is_pressed(Button::West);
 
                 let dpad_up = gamepad.is_pressed(Button::DPadUp);
 
@@ -222,6 +227,7 @@ impl Controller {
                     right_trigger,
                     left_trigger,
                     y_button,
+                    x_button,
                     dpad_up,
                     dpad_down,
                     dpad_left,
@@ -242,6 +248,7 @@ impl Controller {
             right_trigger,
             left_trigger,
             y_button,
+            x_button,
             dpad_up,
             dpad_down,
             dpad_left,
@@ -256,6 +263,10 @@ impl Controller {
             self.color_cycle_toggle = true;
         }
         self.y_button_pressed = y_button;
+        if x_button && !self.x_button_pressed {
+            self.crt_toggle = true;
+        }
+        self.x_button_pressed = x_button;
 
         /*
          * Buttons.
@@ -313,6 +324,10 @@ impl Controller {
 
     pub fn take_color_cycle_toggle(&mut self) -> bool {
         std::mem::take(&mut self.color_cycle_toggle)
+    }
+
+    pub fn take_crt_toggle(&mut self) -> bool {
+        std::mem::take(&mut self.crt_toggle)
     }
 
     fn set_record_trigger(&mut self, pressed: bool) {

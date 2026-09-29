@@ -13,7 +13,7 @@ use crate::nes::Nes;
 use crate::{audio::Audio, cartridge::Cartridge};
 
 use crate::postprocess::{
-    AutoGradient, Bloom, ColorCorrection, Curvature, Lut, LutPreset, Ntsc, Persistence,
+    AutoGradient, Bloom, ColorCorrection, Crt, Curvature, Lut, LutPreset, Ntsc, Persistence,
     PostProcessPipeline, Scanlines, Vignette,
 };
 
@@ -269,6 +269,10 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
 
     postprocess.set_enabled("vignette", args.iter().any(|arg| arg == "--vignette"));
 
+    // CRT shader-style treatment, toggled at runtime with the controller X button.
+    postprocess.add(Crt::new(option_value(args, "--crt-strength", 0.75)));
+    postprocess.set_enabled("crt", args.iter().any(|arg| arg == "--crt"));
+
     /*
      * ---------------------------------------------------------
      * Maximum frame count
@@ -435,6 +439,14 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                 if let Some(label) = postprocess.lut_label() {
                     lut_notice = Some((label.to_string(), Instant::now()));
                 }
+            }
+            if nes.bus.controller.take_crt_toggle() {
+                let enabled = !postprocess.is_enabled("crt");
+                postprocess.set_enabled("crt", enabled);
+                lut_notice = Some((
+                    format!("CRT {}", if enabled { "ON" } else { "OFF" }),
+                    Instant::now(),
+                ));
             }
             nes.run_frame();
             let samples = nes.take_audio_samples();
