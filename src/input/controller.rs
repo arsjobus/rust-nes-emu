@@ -33,10 +33,10 @@ pub struct Controller {
      */
     keyboard_buttons: NesButtons,
 
-    // Right trigger toggles turbo; A and B then pulse while held.
+    // Left trigger toggles turbo; A and B then pulse while held.
     turbo_enabled: bool,
-    right_trigger_pressed: bool,
     left_trigger_pressed: bool,
+    right_trigger_pressed: bool,
     keyboard_turbo_pressed: bool,
     keyboard_record_pressed: bool,
     record_toggle: bool,
@@ -257,8 +257,8 @@ impl Controller {
             stick_y,
         ) = state;
 
-        self.set_turbo_trigger(right_trigger);
-        self.set_record_trigger(left_trigger);
+        self.set_turbo_trigger(left_trigger);
+        self.set_record_trigger(right_trigger);
         if y_button && !self.y_button_pressed {
             self.color_cycle_toggle = true;
         }
@@ -331,10 +331,10 @@ impl Controller {
     }
 
     fn set_record_trigger(&mut self, pressed: bool) {
-        if pressed && !self.left_trigger_pressed {
+        if pressed && !self.right_trigger_pressed {
             self.record_toggle = true;
         }
-        self.left_trigger_pressed = pressed;
+        self.right_trigger_pressed = pressed;
     }
 
     /*
@@ -354,10 +354,10 @@ impl Controller {
     }
 
     fn set_turbo_trigger(&mut self, pressed: bool) {
-        if pressed && !self.right_trigger_pressed {
+        if pressed && !self.left_trigger_pressed {
             self.turbo_enabled = !self.turbo_enabled;
         }
-        self.right_trigger_pressed = pressed;
+        self.left_trigger_pressed = pressed;
     }
 
     /*

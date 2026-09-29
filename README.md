@@ -4,6 +4,29 @@
 
 New here? Start with the [Getting Started guide](docs/GETTING_STARTED.md) for build instructions, controls, and troubleshooting.
 
+## Features
+
+- **Turbo buttons:** Toggle built-in turbo with **Left Shift** or the gamepad's
+  **left trigger**. Hold A or B to send rapid repeated presses; toggle it again
+  to return to normal input.
+- **ROM browser:** Start without a ROM to open an animated TV-static screen and
+  choose a `.nes` file found in the current directory or recursively under
+  `roms/`.
+- **Gamepad and keyboard controls:** Play with the keyboard or a USB gamepad.
+  Return to the ROM menu and rescan for games without restarting the emulator.
+- **Video and audio recording:** Record gameplay to MP4 with game audio using
+  **0** or the gamepad's **right trigger**. FFmpeg with `libx264` support is
+  required to finalize recordings.
+- **Visual effects:** Configure post-processing from the command line, including
+  NTSC signal simulation, CRT phosphor and scanlines, curvature, bloom,
+  persistence, vignette, color correction, and LUT presets. The gamepad's **X**
+  button toggles the CRT effect during play; **Y** cycles color correction and
+  LUT presets.
+- **Battery saves:** Load and save battery-backed PRG RAM in a `.sav` file beside
+  the ROM.
+- **Mapper support:** Supports the cartridge mappers listed below, including
+  MMC3 and MMC5 features.
+
 ## Compatibility (Mapper)
 
 Games which have mappers as:
@@ -30,7 +53,7 @@ Start without a ROM to show animated TV static and a ROM picker:
 
 `cargo run --release`
 
-The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** or the controller's **left trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Press **Left Shift** or the controller's **right trigger** to toggle turbo for held A/B buttons. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. Press controller **X** to toggle the CRT phosphor, scanline, and edge-shading effect. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
+The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** or the controller's **right trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Press **Left Shift** or the controller's **left trigger** to toggle turbo for held A/B buttons. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. Press controller **X** to toggle the CRT phosphor, scanline, and edge-shading effect. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
 
 ### Battery Saves
 

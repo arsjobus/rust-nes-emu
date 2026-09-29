@@ -95,10 +95,11 @@ fn print_usage() {
     eprintln!("Controller:");
     eprintln!("  USB gamepad             Logitech/gamepad controller support");
     eprintln!(
-        "  Left trigger            Start/stop MP4 video and audio recording (requires ffmpeg)"
+        "  Right trigger           Start/stop MP4 video and audio recording (requires ffmpeg)"
     );
     eprintln!("  0                       Start/stop MP4 video and audio recording");
     eprintln!("  Left Shift              Toggle turbo for held A/B buttons");
+    eprintln!("  Left trigger            Toggle turbo for held A/B buttons");
     eprintln!("  Controller X            Toggle CRT effect while playing");
     eprintln!();
     eprintln!("Idle screen:");

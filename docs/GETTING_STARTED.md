@@ -46,7 +46,7 @@ cargo run --release -- --help
 | Start | Enter |
 | D-pad | Arrow keys |
 
-USB gamepads are also supported. In the ROM picker, use Up/Down or the D-pad/left stick to select a game, then Enter or gamepad A/Start to launch it. Press **O** to rescan the ROM folders, **R** to return to the picker while playing, and **Esc** to quit. On a gamepad, the right trigger toggles turbo for held A/B buttons; **Y** enables color correction and cycles LUT presets; the left trigger starts or stops recording.
+USB gamepads are also supported. In the ROM picker, use Up/Down or the D-pad/left stick to select a game, then Enter or gamepad A/Start to launch it. Press **O** to rescan the ROM folders, **R** to return to the picker while playing, and **Esc** to quit. On a gamepad, the left trigger toggles turbo for held A/B buttons and the right trigger starts or stops recording; **Y** enables color correction and cycles LUT presets.
 
 ## Optional display effects
 
@@ -63,7 +63,7 @@ Values can be supplied as `--option value` or `--option=value`. Run with `--help
 
 Battery-backed games store save RAM in a `.sav` file next to the ROM. For example, `game.nes` uses `game.sav`. The emulator writes the save when you quit, return to the picker, or load another game.
 
-Gamepad left trigger starts or stops an MP4 recording in the current working directory. Recording requires FFmpeg with `libx264` support available on `PATH`. The recording includes game audio.
+Gamepad right trigger starts or stops an MP4 recording in the current working directory. Recording requires FFmpeg with `libx264` support available on `PATH`. The recording includes game audio.
 
 ## Troubleshooting
 
