@@ -14,7 +14,7 @@ use std::env;
 use crate::{cartridge::Cartridge, nes::Nes};
 
 fn print_usage() {
-    eprintln!("Usage: runes <rom.nes> [options]");
+    eprintln!("Usage: runes [rom.nes] [options]");
     eprintln!();
     eprintln!("Post-processing options:");
     eprintln!("  --ntsc                  Enable NTSC/composite color bleed");
@@ -29,6 +29,13 @@ fn print_usage() {
     eprintln!();
     eprintln!("Controller:");
     eprintln!("  USB gamepad             Logitech/gamepad controller support");
+    eprintln!();
+    eprintln!("Idle screen:");
+    eprintln!("  runes                   Show TV static and choose a ROM");
+    eprintln!("  Up/Down or D-pad        Navigate the ROM list");
+    eprintln!("  Enter, gamepad A/Start  Launch the selected ROM");
+    eprintln!("  O                       Rescan current folder and roms/");
+    eprintln!("  R                       Return from a game to the ROM menu");
     eprintln!();
     eprintln!("Other options:");
     eprintln!("  --help                  Show this help");
@@ -48,56 +55,23 @@ fn print_usage() {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
-        print_usage();
-        return;
-    }
-
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_usage();
         return;
     }
 
-    /*
-     * ---------------------------------------------------------
-     * ROM
-     * ---------------------------------------------------------
-     */
-
-    let rom_path = &args[1];
-
-    let cart = match Cartridge::load(rom_path) {
-        Ok(cart) => cart,
-
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            return;
+    let rom_path = args.iter().skip(1).find(|arg| !arg.starts_with('-'));
+    let nes = if let Some(rom_path) = rom_path {
+        match Cartridge::load(rom_path) {
+            Ok(cart) => Some(Nes::new(cart)),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return;
+            }
         }
+    } else {
+        None
     };
-
-    /*
-     * ---------------------------------------------------------
-     * NES
-     * ---------------------------------------------------------
-     *
-     * The NES owns the Bus.
-     *
-     * The Bus owns the Controller.
-     *
-     * The Controller owns the gilrs USB gamepad interface.
-     *
-     * Therefore main.rs does not need to create an Input
-     * object separately.
-     * ---------------------------------------------------------
-     */
-
-    let nes = Nes::new(cart);
-
-    /*
-     * ---------------------------------------------------------
-     * PPU options
-     * ---------------------------------------------------------
-     */
 
     /*
      * ---------------------------------------------------------
