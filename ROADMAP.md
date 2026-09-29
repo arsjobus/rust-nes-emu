@@ -14,10 +14,10 @@ This roadmap tracks practical improvements to **runes**, a Rust NES emulator. It
 
 The currently documented supported mapper numbers are **0 (NROM), 2 (UxROM), 9 (MMC2/PxROM), and 66 (GxROM)**. Add mapper support incrementally, with focused tests for banking, mirroring, RAM, and IRQ behavior where applicable.
 
-- [ ] **Mapper 1 — MMC1:** serial register writes, PRG/CHR banking, mirroring modes, and PRG RAM behavior.
-- [ ] **Mapper 4 — MMC3:** PRG/CHR banking, mirroring, RAM protection, and scanline IRQ timing.
-- [ ] **Mapper 3 — CNROM:** CHR bank switching and bus-conflict behavior where required by the board.
-- [ ] **Mapper 7 — AxROM:** PRG banking and one-screen mirroring.
+- [X] **Mapper 1 — MMC1:** serial register writes, PRG/CHR banking, mirroring modes, and PRG RAM behavior.
+- [X] **Mapper 4 — MMC3:** PRG/CHR banking, mirroring, RAM protection, and scanline IRQ timing.
+- [X] **Mapper 3 — CNROM:** CHR bank switching and bus-conflict behavior where required by the board.
+- [X] **Mapper 7 — AxROM:** PRG banking and one-screen mirroring.
 - [ ] **Additional common mappers:** prioritize based on test ROM availability and requested games; candidates include 11 (Color Dreams), 23/25 (VRC), and 71 (Camerica).
 - [ ] **ROM format coverage:** improve NES 2.0 header parsing and report unsupported board variants or malformed images clearly.
 
