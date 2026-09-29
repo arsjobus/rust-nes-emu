@@ -532,7 +532,7 @@ impl Controller {
     pub fn read(&mut self) -> u8 {
         /*
          * While strobe is high, return A.
-        */
+         */
         if self.strobe {
             return 0x40 | if self.buttons().a { 1 } else { 0 };
         }

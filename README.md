@@ -90,6 +90,20 @@ src/
 8. --scanlines
 9. --vignette
 
+Effects accept configurable values using either `--option value` or
+`--option=value`. For example, `--bloom --bloom-strength 0.4` adjusts bloom
+intensity, while `--lut cool-crt --lut-strength 0.8` selects and blends a LUT.
+Available LUT presets are `identity`, `warm-crt`, `cool-crt`, `composite`,
+`gameboy`, `amber`, and `high-contrast`.
+
+Other parameters include `--bloom-threshold`, `--bloom-radius`,
+`--ntsc-strength`, `--ntsc-bleed`, `--persistence-amount`,
+`--persistence-frames`, `--color-brightness`, `--color-contrast`,
+`--color-saturation`, `--color-gamma`, `--curvature-strength`,
+`--auto-gradient-strength`, `--auto-gradient-vertical`,
+`--auto-gradient-horizontal`, `--scanlines-strength`, and
+`--vignette-strength`.
+
 ## Input Devies
 
 1. Keyboard

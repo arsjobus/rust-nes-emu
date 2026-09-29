@@ -22,6 +22,43 @@ const HEIGHT: usize = 240;
 
 const INITIAL_SCALE: usize = 3;
 
+fn option_value<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> T {
+    let prefix = format!("{name}=");
+    args.iter()
+        .find_map(|arg| {
+            arg.strip_prefix(&prefix)
+                .or_else(|| (arg == name).then(|| ""))
+                .and_then(|value| {
+                    if value.is_empty() {
+                        None
+                    } else {
+                        value.parse().ok()
+                    }
+                })
+                .or_else(|| {
+                    (arg == name)
+                        .then(|| args.iter().position(|candidate| candidate == name))
+                        .flatten()
+                        .and_then(|index| args.get(index + 1))
+                        .and_then(|value| value.parse().ok())
+                })
+        })
+        .unwrap_or(default)
+}
+
+fn lut_preset(args: &[String]) -> LutPreset {
+    let name: String = option_value(args, "--lut", String::from("warm-crt"));
+    match name.to_ascii_lowercase().as_str() {
+        "identity" => LutPreset::Identity,
+        "cool" | "cool-crt" => LutPreset::CoolCrt,
+        "composite" => LutPreset::Composite,
+        "gameboy" | "game-boy" => LutPreset::GameBoy,
+        "amber" => LutPreset::Amber,
+        "high-contrast" | "highcontrast" => LutPreset::HighContrast,
+        _ => LutPreset::WarmCrt,
+    }
+}
+
 pub fn run(mut nes: Option<Nes>, args: &[String]) {
     /*
      * ---------------------------------------------------------
@@ -104,7 +141,10 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(Ntsc::new(0.65, 2));
+    postprocess.add(Ntsc::new(
+        option_value(args, "--ntsc-strength", 0.65),
+        option_value(args, "--ntsc-bleed", 2),
+    ));
 
     postprocess.set_enabled("ntsc", args.iter().any(|arg| arg == "--ntsc"));
 
@@ -114,7 +154,10 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(Persistence::new(0.2, 3));
+    postprocess.add(Persistence::new(
+        option_value(args, "--persistence-amount", 0.2),
+        option_value(args, "--persistence-frames", 3),
+    ));
 
     postprocess.set_enabled("persistence", args.iter().any(|arg| arg == "--persistence"));
 
@@ -124,7 +167,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(Bloom::new(180, 0.20, 3));
+    postprocess.add(Bloom::new(
+        option_value(args, "--bloom-threshold", 180),
+        option_value(args, "--bloom-strength", 0.20),
+        option_value(args, "--bloom-radius", 3),
+    ));
 
     postprocess.set_enabled("bloom", args.iter().any(|arg| arg == "--bloom"));
 
@@ -134,7 +181,12 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(ColorCorrection::new(0.0, 1.05, 0.95, 1.0));
+    postprocess.add(ColorCorrection::new(
+        option_value(args, "--color-brightness", 0.0),
+        option_value(args, "--color-contrast", 1.05),
+        option_value(args, "--color-saturation", 0.95),
+        option_value(args, "--color-gamma", 1.0),
+    ));
 
     postprocess.set_enabled(
         "color_correction",
@@ -147,9 +199,16 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(Lut::new(LutPreset::WarmCrt, 0.65));
+    postprocess.add(Lut::new(
+        lut_preset(args),
+        option_value(args, "--lut-strength", 0.65),
+    ));
 
-    postprocess.set_enabled("lut", args.iter().any(|arg| arg == "--lut"));
+    postprocess.set_enabled(
+        "lut",
+        args.iter()
+            .any(|arg| arg == "--lut" || arg.starts_with("--lut=")),
+    );
 
     /*
      * ---------------------------------------------------------
@@ -157,7 +216,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(Curvature::new(0.05));
+    postprocess.add(Curvature::new(option_value(
+        args,
+        "--curvature-strength",
+        0.05,
+    )));
 
     postprocess.set_enabled("curvature", args.iter().any(|arg| arg == "--curvature"));
 
@@ -167,7 +230,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(AutoGradient::new(0.15, 0.40, 0.25));
+    postprocess.add(AutoGradient::new(
+        option_value(args, "--auto-gradient-strength", 0.15),
+        option_value(args, "--auto-gradient-vertical", 0.40),
+        option_value(args, "--auto-gradient-horizontal", 0.25),
+    ));
 
     postprocess.set_enabled(
         "auto_gradient",
@@ -180,7 +247,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(Scanlines::new(0.1));
+    postprocess.add(Scanlines::new(option_value(
+        args,
+        "--scanlines-strength",
+        0.1,
+    )));
 
     postprocess.set_enabled("scanlines", args.iter().any(|arg| arg == "--scanlines"));
 
@@ -190,7 +261,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    postprocess.add(Vignette::new(0.35));
+    postprocess.add(Vignette::new(option_value(
+        args,
+        "--vignette-strength",
+        0.35,
+    )));
 
     postprocess.set_enabled("vignette", args.iter().any(|arg| arg == "--vignette"));
 
@@ -331,7 +406,16 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
             }
             postprocess.apply(nes.framebuffer_mut(), WIDTH, HEIGHT);
             if nes.turbo_enabled() {
-                draw_text(nes.framebuffer_mut(), WIDTH, HEIGHT, 2, 2, "TURBO", 1, 0xffffff);
+                draw_text(
+                    nes.framebuffer_mut(),
+                    WIDTH,
+                    HEIGHT,
+                    2,
+                    2,
+                    "TURBO",
+                    1,
+                    0xffffff,
+                );
             }
         }
 
