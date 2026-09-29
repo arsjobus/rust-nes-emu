@@ -211,6 +211,8 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     let mut selection = 0usize;
     let mut previous_up = false;
     let mut previous_down = false;
+    let mut repeat_up_at = None;
+    let mut repeat_down_at = None;
     let mut previous_enter = false;
     let mut previous_o = false;
     let mut menu_gamepad = if nes.is_none() {
@@ -270,10 +272,23 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         let (pad_up, pad_down, pad_select) = menu_gamepad_state(&mut menu_gamepad);
 
         if nes.is_none() {
-            if ((up && !previous_up) || (pad_up && !previous_pad_up)) && !roms.is_empty() {
+            let now = Instant::now();
+            let move_up = menu_navigation_pressed(
+                up || pad_up,
+                previous_up || previous_pad_up,
+                &mut repeat_up_at,
+                now,
+            );
+            let move_down = menu_navigation_pressed(
+                down || pad_down,
+                previous_down || previous_pad_down,
+                &mut repeat_down_at,
+                now,
+            );
+            if move_up && !roms.is_empty() {
                 selection = (selection + roms.len() - 1) % roms.len();
             }
-            if ((down && !previous_down) || (pad_down && !previous_pad_down)) && !roms.is_empty() {
+            if move_down && !roms.is_empty() {
                 selection = (selection + 1) % roms.len();
             }
             if open && !previous_o {
@@ -418,6 +433,32 @@ fn find_roms() -> Vec<PathBuf> {
     roms.sort();
     roms.dedup();
     roms
+}
+
+fn menu_navigation_pressed(
+    pressed: bool,
+    was_pressed: bool,
+    repeat_at: &mut Option<Instant>,
+    now: Instant,
+) -> bool {
+    const INITIAL_REPEAT_DELAY: Duration = Duration::from_millis(350);
+    const REPEAT_INTERVAL: Duration = Duration::from_millis(100);
+
+    if !pressed {
+        *repeat_at = None;
+        return false;
+    }
+    if !was_pressed {
+        *repeat_at = Some(now + INITIAL_REPEAT_DELAY);
+        return true;
+    }
+    if let Some(next_repeat) = *repeat_at {
+        if now >= next_repeat {
+            *repeat_at = Some(now + REPEAT_INTERVAL);
+            return true;
+        }
+    }
+    false
 }
 
 fn menu_gamepad_state(gilrs: &mut Option<Gilrs>) -> (bool, bool, bool) {

@@ -372,6 +372,7 @@ impl Controller {
     pub fn buttons(&self) -> NesButtons {
         let turbo_pulse = !self.turbo_enabled || self.turbo_frame < 3;
         NesButtons {
+            // Deliberately swap USB A/B for the preferred default gamepad layout.
             a: (self.usb_buttons.b || self.keyboard_buttons.a) && turbo_pulse,
 
             b: (self.usb_buttons.a || self.keyboard_buttons.b) && turbo_pulse,
