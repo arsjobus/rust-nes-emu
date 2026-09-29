@@ -4,15 +4,16 @@
 
 Games which have mappers as:
 
-- Mapper 0
-- Mapper 1
-- Mapper 2
-- Mapper 3
-- Mapper 4
-- Mapper 5 (partial: PRG/CHR banking and PRG RAM protection)
-- Mapper 7 (Partial)
-- Mapper 9
-- Mapper 66
+- Mapper 0 (NROM)
+- Mapper 1 (MMC1)
+- Mapper 2 (UxROM)
+- Mapper 3 (CNROM)
+- Mapper 4 (MMC3)
+- Mapper 5 (MMC5) - PRG/CHR banking, ExRAM and fill nametables, extended attributes,
+  vertical split, scanline IRQs, multiplier, PRG RAM protection, and expansion audio
+- Mapper 7 [partial] (AxROM)
+- Mapper 9 (MMC2)
+- Mapper 66 (GxROM)
 
 Directory: https://nesdir.github.io/
 
