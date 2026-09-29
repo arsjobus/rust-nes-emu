@@ -432,3 +432,7 @@ impl Cpu {
         self.adc(value ^ 0xff);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/cpu/mod.rs"]
+mod tests;
