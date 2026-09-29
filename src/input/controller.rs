@@ -527,15 +527,15 @@ impl Controller {
     pub fn read(&mut self) -> u8 {
         /*
          * While strobe is high, return A.
-         */
+        */
         if self.strobe {
-            return if self.buttons().a { 1 } else { 0 };
+            return 0x40 | if self.buttons().a { 1 } else { 0 };
         }
 
         /*
          * Return next serial bit.
          */
-        let value = self.shift_register & 1;
+        let value = 0x40 | (self.shift_register & 1);
 
         self.shift_register >>= 1;
 
