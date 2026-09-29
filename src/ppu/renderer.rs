@@ -90,7 +90,7 @@ impl Ppu {
 
             let mut pixel_x = -(self.x as i32);
 
-            for _ in 0..33 {
+            for tile_x in 0..33 {
                 let coarse_x = v & 0x1f;
 
                 let coarse_y = (v >> 5) & 0x1f;
@@ -99,7 +99,7 @@ impl Ppu {
 
                 let nametable_base = 0x2000 + nametable * 0x400;
 
-                let tile = self.internal_read(nametable_base + coarse_y * 32 + coarse_x);
+                let mut tile = self.internal_read(nametable_base + coarse_y * 32 + coarse_x);
 
                 let attribute_addr = nametable_base + 0x3c0 + (coarse_y / 4) * 8 + (coarse_x / 4);
 
@@ -107,11 +107,32 @@ impl Ppu {
 
                 let shift = ((coarse_y % 4) / 2) * 4 + ((coarse_x % 4) / 2) * 2;
 
-                let palette = (attribute >> shift) & 3;
+                let mut palette = (attribute >> shift) & 3;
+                if let Some((split_tile, split_palette, _)) = self.cart.bg_tile(tile_x, y) {
+                    tile = split_tile;
+                    palette = split_palette;
+                } else if let Some(extended_palette) =
+                    self.cart
+                        .bg_palette(tile_x, y, (coarse_x as usize, coarse_y as usize))
+                {
+                    palette = extended_palette;
+                }
 
-                let p0 = self.internal_read(pattern + tile as u16 * 16 + fine_y);
+                let p0 = self.cart.bg_chr_read(
+                    pattern + tile as u16 * 16 + fine_y,
+                    tile_x,
+                    y,
+                    self.ctrl & 0x20 != 0,
+                    (coarse_x as usize, coarse_y as usize),
+                );
 
-                let p1 = self.internal_read(pattern + tile as u16 * 16 + fine_y + 8);
+                let p1 = self.cart.bg_chr_read(
+                    pattern + tile as u16 * 16 + fine_y + 8,
+                    tile_x,
+                    y,
+                    self.ctrl & 0x20 != 0,
+                    (coarse_x as usize, coarse_y as usize),
+                );
 
                 for bit in 0..8 {
                     let px = pixel_x + bit;
@@ -258,9 +279,13 @@ impl Ppu {
                 (if self.ctrl & 8 != 0 { 0x1000 } else { 0 }, tile, row)
             };
 
-            let p0 = self.internal_read(pattern + tile_number as u16 * 16 + row as u16);
+            let p0 = self
+                .cart
+                .sprite_chr_read(pattern + tile_number as u16 * 16 + row as u16);
 
-            let p1 = self.internal_read(pattern + tile_number as u16 * 16 + row as u16 + 8);
+            let p1 = self
+                .cart
+                .sprite_chr_read(pattern + tile_number as u16 * 16 + row as u16 + 8);
 
             prepared.push(PreparedSprite {
                 index,

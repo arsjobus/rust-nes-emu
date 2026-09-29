@@ -27,6 +27,7 @@ pub(super) struct Pulse {
     sweep_period: u8,
 
     channel_one: bool,
+    mmc5: bool,
 }
 
 impl Pulse {
@@ -58,7 +59,14 @@ impl Pulse {
             sweep_period: 0,
 
             channel_one,
+            mmc5: false,
         }
+    }
+
+    pub(super) fn new_mmc5() -> Self {
+        let mut pulse = Self::new(false);
+        pulse.mmc5 = true;
+        pulse
     }
 
     pub(super) fn write(&mut self, reg: u16, value: u8) {
@@ -71,6 +79,9 @@ impl Pulse {
             }
 
             1 => {
+                if self.mmc5 {
+                    return;
+                }
                 self.sweep_enabled = value & 0x80 != 0;
                 self.sweep_period = ((value >> 4) & 7) + 1;
                 self.sweep_negate = value & 0x08 != 0;
@@ -158,7 +169,11 @@ impl Pulse {
     }
 
     pub(super) fn output(&self) -> f32 {
-        if !self.enabled || self.length == 0 || self.period < 8 || self.period > 0x7ff {
+        if !self.enabled
+            || self.length == 0
+            || (!self.mmc5 && self.period < 8)
+            || self.period > 0x7ff
+        {
             return 0.0;
         }
 
@@ -175,5 +190,21 @@ impl Pulse {
         };
 
         duty * volume as f32
+    }
+
+    pub(super) fn mmc5_output(&self) -> f32 {
+        if !self.mmc5 {
+            return self.output();
+        }
+        if !self.enabled || self.length == 0 || self.period > 0x7ff {
+            return 0.0;
+        }
+        let duty = PULSE_DUTY[self.duty][self.sequence];
+        let volume = if self.constant_volume {
+            self.volume
+        } else {
+            self.envelope_decay
+        };
+        (1.0 - duty) * volume as f32
     }
 }

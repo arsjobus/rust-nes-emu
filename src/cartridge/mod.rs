@@ -7,7 +7,7 @@ pub use mapper::{
     Mmc5Mapper, NromMapper, UxromMapper,
 };
 
-const PRG_RAM_SIZE: usize = 8 * 1024;
+const PRG_RAM_SIZE: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MapperKind {
@@ -28,11 +28,10 @@ pub struct Cartridge {
 
     pub(crate) chr_ram: bool,
 
-    // 8 KiB of PRG RAM mapped at $6000-$7FFF. The iNES format
-    // implies this RAM exists on every board, and some ROMs (and
-    // most test ROMs, which report results through $6000) expect
-    // it. It is not battery backed, so it starts zeroed every run.
-    pub(crate) prg_ram: [u8; PRG_RAM_SIZE],
+    // Storage for up to 64 KiB of PRG RAM. Non-MMC5 boards use the
+    // first 8 KiB; MMC5 selects 8 KiB banks from the larger region.
+    // RAM is not battery-backed and starts zeroed every run.
+    pub(crate) prg_ram: Vec<u8>,
 
     #[allow(dead_code)] // Exposed cartridge metadata for callers that inspect loaded ROMs.
     pub mapper_kind: MapperKind,
@@ -123,7 +122,7 @@ impl Cartridge {
             9 => (MapperKind::Mmc2, Box::new(Mmc2Mapper::new(vertical))),
             1 => (MapperKind::Mmc1, Box::new(Mmc1Mapper::new(vertical))),
             4 => (MapperKind::Mmc3, Box::new(Mmc3Mapper::new(vertical))),
-            5 => (MapperKind::Mmc5, Box::new(Mmc5Mapper::new())),
+            5 => (MapperKind::Mmc5, Box::new(Mmc5Mapper::new(vertical))),
 
             n => {
                 return Err(format!("Unsupported mapper {}", n));
@@ -151,7 +150,7 @@ impl Cartridge {
             prg,
             chr,
             chr_ram,
-            prg_ram: [0; PRG_RAM_SIZE],
+            prg_ram: vec![0; PRG_RAM_SIZE],
             mapper_kind,
             mirroring_vertical: mirroring == Mirroring::Vertical,
             mirroring,
@@ -168,19 +167,31 @@ impl Cartridge {
         match addr {
             // $4020-$5FFF: unmapped on all supported boards.
             // (Real hardware returns open bus; 0 is close enough.)
-            0x0000..=0x5fff => self.mapper.cpu_read_ext(addr).unwrap_or(0),
+            0x0000..=0x5fff => self.mapper.cpu_peek_ext(addr).unwrap_or(0),
 
             // $6000-$7FFF: PRG RAM.
             0x6000..=0x7fff => {
                 if self.mapper.prg_ram_enabled() {
-                    self.prg_ram[(addr - 0x6000) as usize]
+                    self.prg_ram[self.mapper.cpu_ram_index(addr) % self.prg_ram.len()]
                 } else {
                     0
                 }
             }
 
             // $8000-$FFFF: PRG ROM, banked by the mapper.
-            0x8000..=0xffff => self.mapper.cpu_read(&self.prg, addr),
+            0x8000..=0xffff => self
+                .mapper
+                .read_slot_ram_index(addr)
+                .map(|i| self.prg_ram[i % self.prg_ram.len()])
+                .unwrap_or_else(|| self.mapper.cpu_read(&self.prg, addr)),
+        }
+    }
+
+    pub(crate) fn cpu_read_mut(&mut self, addr: u16) -> u8 {
+        if addr <= 0x5fff {
+            self.mapper.cpu_read_ext(addr).unwrap_or(0)
+        } else {
+            self.cpu_read(addr)
         }
     }
 
@@ -197,13 +208,19 @@ impl Cartridge {
             // a stray write to this range switched GxROM banks).
             0x6000..=0x7fff => {
                 if self.mapper.prg_ram_writable() {
-                    self.prg_ram[(addr - 0x6000) as usize] = value;
+                    let index = self.mapper.cpu_ram_index(addr) % self.prg_ram.len();
+                    self.prg_ram[index] = value;
                 }
             }
 
             // $8000-$FFFF: mapper registers.
             0x8000..=0xffff => {
-                self.mapper.cpu_write(&self.prg, addr, value);
+                let ram_slot = self.mapper.prg_slot_is_ram(addr);
+                if ram_slot {
+                    self.cpu_write_prg_slot(addr, value);
+                } else {
+                    self.mapper.cpu_write(&self.prg, addr, value);
+                }
 
                 // Some mappers (e.g. MMC2/MMC4) can switch
                 // mirroring at runtime via a CPU-mapped register
@@ -217,13 +234,75 @@ impl Cartridge {
         }
     }
 
+    pub(crate) fn cpu_write_prg_slot(&mut self, addr: u16, value: u8) -> bool {
+        if let Some(index) = self.mapper.write_slot_ram_index(addr) {
+            let index = index % self.prg_ram.len();
+            self.prg_ram[index] = value;
+            true
+        } else {
+            false
+        }
+    }
+    pub(crate) fn ppu_nametable_read(
+        &self,
+        addr: u16,
+        attribute: bool,
+        rendering: bool,
+    ) -> Option<u8> {
+        self.mapper.ppu_nametable_read(addr, attribute, rendering)
+    }
+    pub(crate) fn ppu_nametable_write(&mut self, addr: u16, value: u8, rendering: bool) -> bool {
+        self.mapper.ppu_nametable_write(addr, value, rendering)
+    }
+    pub(crate) fn nametable_ciram_page(&self, table: usize) -> Option<usize> {
+        self.mapper.nametable_ciram_page(table)
+    }
+    pub(crate) fn clock_mmc5_scanline(&mut self, scanline: u16, rendering: bool) {
+        self.mapper.clock_mmc5_scanline(scanline, rendering);
+    }
+    pub(crate) fn ppu_frame_start(&mut self) {
+        self.mapper.ppu_frame_start();
+    }
+    pub(crate) fn bg_tile(&self, x: usize, y: usize) -> Option<(u8, u8, u16)> {
+        self.mapper.background_tile(x, y)
+    }
+    pub(crate) fn bg_chr_read(
+        &self,
+        addr: u16,
+        x: usize,
+        y: usize,
+        separate_bg_regs: bool,
+        nt: (usize, usize),
+    ) -> u8 {
+        self.mapper
+            .background_chr_read(&self.chr, addr, x, y, separate_bg_regs, nt)
+            .unwrap_or_else(|| self.mapper.chr_read(&self.chr, addr))
+    }
+    pub(crate) fn bg_palette(&self, x: usize, y: usize, nt: (usize, usize)) -> Option<u8> {
+        self.mapper.ppu_palette_for_split(x, y, nt)
+    }
+
+    #[allow(dead_code)] // Direct cartridge access is used by mapper-level tests.
     pub fn chr_read(&self, addr: u16) -> u8 {
         self.mapper.chr_read(&self.chr, addr)
     }
 
+    pub(crate) fn chr_io_read(&self, addr: u16) -> u8 {
+        self.mapper.chr_io_read(&self.chr, addr)
+    }
+    pub(crate) fn sprite_chr_read(&self, addr: u16) -> u8 {
+        self.mapper.chr_read(&self.chr, addr)
+    }
+
+    #[allow(dead_code)] // Direct cartridge access is used by mapper-level tests.
     pub fn chr_write(&mut self, addr: u16, value: u8) {
         self.mapper
             .chr_write(&mut self.chr, addr, value, self.chr_ram);
+    }
+
+    pub(crate) fn chr_io_write(&mut self, addr: u16, value: u8) {
+        self.mapper
+            .chr_io_write(&mut self.chr, addr, value, self.chr_ram);
     }
 
     pub(crate) fn clock_scanline(&mut self) {

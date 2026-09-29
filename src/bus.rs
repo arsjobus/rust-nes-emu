@@ -46,7 +46,15 @@ impl Bus {
 
             0x4018..=0x401f => 0,
 
-            0x4020..=0xffff => self.ppu.cart.cpu_read(addr),
+            0x5000..=0x5015 => self.apu.cpu_read(addr),
+
+            0x4020..=0xffff => {
+                let value = self.ppu.cart.cpu_read_mut(addr);
+                if addr >= 0x8000 {
+                    self.apu.mmc5_pcm_read(value);
+                }
+                value
+            }
         }
     }
 
@@ -78,6 +86,8 @@ impl Bus {
             0x4000..=0x4015 => {
                 self.apu.cpu_write(addr, value);
             }
+
+            0x5000..=0x5015 => self.apu.cpu_write(addr, value),
 
             0x4016 => {
                 self.controller.write(value);

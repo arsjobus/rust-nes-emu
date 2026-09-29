@@ -14,6 +14,12 @@ pub trait Mapper {
     fn chr_read(&self, chr: &[u8], addr: u16) -> u8;
 
     fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool);
+    fn chr_io_read(&self, chr: &[u8], addr: u16) -> u8 {
+        self.chr_read(chr, addr)
+    }
+    fn chr_io_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
+        self.chr_write(chr, addr, value, chr_ram);
+    }
 
     /// Mappers that can switch mirroring at runtime (e.g. MMC2)
     /// return their current setting here; the cartridge checks
@@ -38,13 +44,61 @@ pub trait Mapper {
         false
     }
 
-    fn cpu_read_ext(&self, _addr: u16) -> Option<u8> {
+    fn cpu_read_ext(&mut self, _addr: u16) -> Option<u8> {
         None
+    }
+    fn cpu_peek_ext(&self, _addr: u16) -> Option<u8> {
+        None
+    }
+
+    fn cpu_ram_index(&self, addr: u16) -> usize {
+        (addr - 0x6000) as usize
+    }
+    fn ppu_nametable_read(&self, _addr: u16, _attribute: bool, _rendering: bool) -> Option<u8> {
+        None
+    }
+    fn ppu_nametable_write(&mut self, _addr: u16, _value: u8, _rendering: bool) -> bool {
+        false
+    }
+    fn background_tile(&self, _x_tile: usize, _scanline: usize) -> Option<(u8, u8, u16)> {
+        None
+    }
+    fn background_chr_read(
+        &self,
+        _chr: &[u8],
+        _addr: u16,
+        _x_tile: usize,
+        _scanline: usize,
+        _separate_bg_regs: bool,
+        _nametable_tile: (usize, usize),
+    ) -> Option<u8> {
+        None
+    }
+    fn clock_mmc5_scanline(&mut self, _scanline: u16, _rendering: bool) {}
+    fn ppu_frame_start(&mut self) {}
+    fn nametable_ciram_page(&self, _table: usize) -> Option<usize> {
+        None
+    }
+    fn ppu_palette_for_split(
+        &self,
+        _x: usize,
+        _y: usize,
+        _nametable_tile: (usize, usize),
+    ) -> Option<u8> {
+        None
+    }
+    fn read_slot_ram_index(&self, _addr: u16) -> Option<usize> {
+        None
+    }
+    fn write_slot_ram_index(&self, _addr: u16) -> Option<usize> {
+        None
+    }
+    fn prg_slot_is_ram(&self, _addr: u16) -> bool {
+        false
     }
 }
 
-// Mapper 5's common PRG/CHR banking registers. ExRAM rendering modes and
-// expansion audio are handled separately by the PPU/APU and are not modeled here.
+// MMC5 register and PPU-side state. Audio wave generation lives in the APU.
 pub struct Mmc5Mapper {
     prg_mode: u8,
     chr_mode: u8,
@@ -53,11 +107,25 @@ pub struct Mmc5Mapper {
     prg: [u8; 4],
     chr: [u16; 12],
     chr_upper: u8,
-    ram_enable: bool,
+    chr_io_background: bool,
+    nt_map: [u8; 4],
+    exram_mode: u8,
+    exram: [u8; 1024],
+    fill_tile: u8,
+    fill_palette: u8,
+    split: u8,
+    split_scroll: u8,
+    split_bank: u8,
+    scanline_target: u8,
+    scanline: u8,
+    in_frame: bool,
+    irq_enabled: bool,
+    irq_pending: bool,
+    multiply: [u8; 2],
 }
 
 impl Mmc5Mapper {
-    pub fn new() -> Self {
+    pub fn new(vertical: bool) -> Self {
         Self {
             prg_mode: 3,
             chr_mode: 3,
@@ -66,29 +134,123 @@ impl Mmc5Mapper {
             prg: [0, 0, 0, 0xff],
             chr: [0; 12],
             chr_upper: 0,
-            ram_enable: false,
+            chr_io_background: false,
+            nt_map: if vertical { [0, 1, 0, 1] } else { [0, 0, 1, 1] },
+            exram_mode: 0,
+            exram: [0; 1024],
+            fill_tile: 0,
+            fill_palette: 0,
+            split: 0,
+            split_scroll: 0,
+            split_bank: 0,
+            scanline_target: 0,
+            scanline: 0,
+            in_frame: false,
+            irq_enabled: false,
+            irq_pending: false,
+            multiply: [0; 2],
         }
+    }
+    fn slot_reg(&self, slot: usize) -> u8 {
+        match self.prg_mode {
+            0 => self.prg[3],
+            1 => {
+                if slot < 2 {
+                    self.prg[1]
+                } else {
+                    self.prg[3]
+                }
+            }
+            2 => {
+                if slot < 2 {
+                    self.prg[1]
+                } else {
+                    self.prg[slot]
+                }
+            }
+            _ => self.prg[slot],
+        }
+    }
+    fn slot_bank(&self, slot: usize, count: usize) -> usize {
+        let reg = self.slot_reg(slot);
+        let shift = match self.prg_mode {
+            0 => 2,
+            1 if slot < 2 => 1,
+            2 if slot < 2 => 1,
+            _ => 0,
+        };
+        let mut bank = ((reg as usize & 0x7f) >> shift) << shift;
+        if self.prg_mode == 0 {
+            bank += slot;
+        } else if matches!(self.prg_mode, 1 | 2) && slot % 2 == 1 {
+            bank += 1;
+        }
+        bank % count
     }
     fn prg_index(&self, prg: &[u8], addr: u16) -> usize {
         let count = (prg.len() / 0x2000).max(1);
         let slot = ((addr - 0x8000) / 0x2000) as usize;
-        let last = count - 1;
-        let (bank, unit) = match self.prg_mode {
-            0 => ((self.prg[3] as usize & 0x7c) | 3, 4),
-            1 if slot < 2 => ((self.prg[1] as usize & 0x7e) | slot, 2),
-            1 => (self.prg[3] as usize & 0x7e | (slot - 2), 1),
-            2 if slot < 2 => (self.prg[1] as usize & 0x7e | slot, 1),
-            2 => (self.prg[slot] as usize, 1),
-            _ => (self.prg[slot] as usize, 1),
+        self.slot_bank(slot, count) * 0x2000 + (addr as usize & 0x1fff)
+    }
+    fn chr_bank(&self, slot: usize, background: bool) -> usize {
+        let mode = self.chr_mode;
+        let first = if background { 8 } else { 0 };
+        let reg = match mode {
+            0 => self.chr[first + 3],
+            1 => {
+                self.chr[first
+                    + if background {
+                        if slot < 4 { 2 } else { 3 }
+                    } else {
+                        if slot < 4 { 3 } else { 7 }
+                    }]
+            }
+            2 => {
+                self.chr[first
+                    + if background {
+                        if slot < 4 { 1 } else { 3 }
+                    } else {
+                        (slot / 2) * 2 + 1
+                    }]
+            }
+            _ => self.chr[first + if background { slot & 3 } else { slot }],
+        } as usize;
+        let unit = match mode {
+            0 => 8,
+            1 => 4,
+            2 => 2,
+            _ => 1,
         };
-        let bank = if slot + unit >= 4
-            && (slot == 3 || (self.prg_mode == 0 && slot == 0) || (self.prg_mode == 1 && slot >= 2))
-        {
-            last
+        reg * unit + (slot % unit)
+    }
+    fn split_active(&self, x: usize) -> bool {
+        if self.split & 0x80 == 0 {
+            return false;
+        }
+        let threshold = (self.split & 0x1f) as usize;
+        if self.split & 0x40 == 0 {
+            x < threshold
         } else {
-            bank % count
-        };
-        bank * 0x2000 + (addr as usize & 0x1fff)
+            x >= threshold
+        }
+    }
+    fn nt_value(&self, addr: u16, attribute: bool) -> Option<u8> {
+        let rel = addr.wrapping_sub(0x2000) & 0x0fff;
+        let table = (rel >> 10) as usize;
+        let offset = (rel & 0x3ff) as usize;
+        match self.nt_map[table] {
+            0 | 1 => None,
+            2 => Some(if self.exram_mode < 2 {
+                self.exram[offset]
+            } else {
+                0
+            }),
+            _ => Some(if attribute {
+                self.fill_palette.wrapping_mul(0x55)
+            } else {
+                self.fill_tile
+            }),
+        }
     }
 }
 
@@ -102,13 +264,31 @@ impl Mapper for Mmc5Mapper {
             0x5101 => self.chr_mode = value & 3,
             0x5102 => self.protect[0] = value & 3,
             0x5103 => self.protect[1] = value & 3,
-            0x5113 => {
-                self.ram_bank = value & 7;
-                self.ram_enable = true;
+            0x5104 => self.exram_mode = value & 3,
+            0x5105 => {
+                for i in 0..4 {
+                    self.nt_map[i] = (value >> (i * 2)) & 3;
+                }
             }
+            0x5106 => self.fill_tile = value,
+            0x5107 => self.fill_palette = value & 3,
+            0x5113 => self.ram_bank = value & 7,
             0x5114..=0x5117 => self.prg[(addr - 0x5114) as usize] = value,
             0x5130 => self.chr_upper = value & 3,
+            0x5200 => self.split = value,
+            0x5201 => self.split_scroll = value,
+            0x5202 => self.split_bank = value,
+            0x5203 => self.scanline_target = value,
+            0x5204 => self.irq_enabled = value & 0x80 != 0,
+            0x5205 => self.multiply[0] = value,
+            0x5206 => self.multiply[1] = value,
+            0x5c00..=0x5fff => {
+                if self.exram_mode >= 2 || !self.in_frame && self.exram_mode == 0 {
+                    self.exram[(addr & 0x3ff) as usize] = value;
+                }
+            }
             0x5120..=0x512b => {
+                self.chr_io_background = addr >= 0x5128;
                 self.chr[(addr - 0x5120) as usize] = ((self.chr_upper as u16) << 8) | value as u16
             }
             _ => {}
@@ -117,36 +297,190 @@ impl Mapper for Mmc5Mapper {
     fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
         let count = (chr.len() / 0x400).max(1);
         let slot = (addr as usize >> 10) & 7;
-        let reg = match self.chr_mode {
-            0 => self.chr[7],
-            1 => self.chr[3 + (slot >> 1) * 2],
-            2 => self.chr[1 + (slot >> 2) * 4],
-            _ => self.chr[slot],
-        };
-        chr[((reg as usize * 0x400) + (addr as usize & 0x3ff)) % (count * 0x400)]
+        chr[(self.chr_bank(slot, false) * 0x400 + (addr as usize & 0x3ff)) % (count * 0x400)]
     }
     fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
         if chr_ram {
             let count = (chr.len() / 0x400).max(1);
             let slot = (addr as usize >> 10) & 7;
-            let reg = match self.chr_mode {
-                0 => self.chr[7],
-                1 => self.chr[3 + (slot >> 1) * 2],
-                2 => self.chr[1 + (slot >> 2) * 4],
-                _ => self.chr[slot],
-            };
-            let i = ((reg as usize * 0x400) + (addr as usize & 0x3ff)) % (count * 0x400);
+            let i =
+                (self.chr_bank(slot, false) * 0x400 + (addr as usize & 0x3ff)) % (count * 0x400);
             chr[i] = value;
         }
     }
+    fn chr_io_read(&self, chr: &[u8], addr: u16) -> u8 {
+        let count = (chr.len() / 0x400).max(1);
+        let slot = (addr as usize >> 10) & 7;
+        chr[(self.chr_bank(slot, self.chr_io_background) * 0x400 + (addr as usize & 0x3ff))
+            % (count * 0x400)]
+    }
+    fn chr_io_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
+        if chr_ram {
+            let count = (chr.len() / 0x400).max(1);
+            let slot = (addr as usize >> 10) & 7;
+            let index = (self.chr_bank(slot, self.chr_io_background) * 0x400
+                + (addr as usize & 0x3ff))
+                % (count * 0x400);
+            chr[index] = value;
+        }
+    }
     fn prg_ram_enabled(&self) -> bool {
-        self.ram_enable
+        true
     }
     fn prg_ram_writable(&self) -> bool {
-        self.ram_enable && self.protect == [2, 1]
+        self.protect == [2, 1]
     }
-    fn cpu_read_ext(&self, addr: u16) -> Option<u8> {
-        if addr == 0x5204 { Some(0) } else { None }
+    fn cpu_read_ext(&mut self, addr: u16) -> Option<u8> {
+        match addr {
+            0x5204 => {
+                let value = (self.irq_pending as u8) | ((self.in_frame as u8) << 6);
+                self.irq_pending = false;
+                Some(value)
+            }
+            0x5205 => Some((self.multiply[0] as u16 * self.multiply[1] as u16) as u8),
+            0x5206 => Some(((self.multiply[0] as u16 * self.multiply[1] as u16) >> 8) as u8),
+            0x5c00..=0x5fff => {
+                if self.exram_mode >= 2 || !self.in_frame && self.exram_mode <= 1 {
+                    Some(self.exram[(addr & 0x3ff) as usize])
+                } else {
+                    Some(0)
+                }
+            }
+            _ => None,
+        }
+    }
+    fn cpu_peek_ext(&self, addr: u16) -> Option<u8> {
+        match addr {
+            0x5204 => Some((self.irq_pending as u8) | ((self.in_frame as u8) << 6)),
+            0x5205 => Some((self.multiply[0] as u16 * self.multiply[1] as u16) as u8),
+            0x5206 => Some(((self.multiply[0] as u16 * self.multiply[1] as u16) >> 8) as u8),
+            0x5c00..=0x5fff if self.exram_mode >= 2 || !self.in_frame && self.exram_mode <= 1 => {
+                Some(self.exram[(addr & 0x3ff) as usize])
+            }
+            0x5c00..=0x5fff => Some(0),
+            _ => None,
+        }
+    }
+    fn cpu_ram_index(&self, addr: u16) -> usize {
+        self.ram_bank as usize * 0x2000 + ((addr - 0x6000) as usize)
+    }
+    fn ppu_nametable_write(&mut self, addr: u16, value: u8, _rendering: bool) -> bool {
+        let rel = addr.wrapping_sub(0x2000) & 0x0fff;
+        let table = (rel >> 10) as usize;
+        let offset = (rel & 0x3ff) as usize;
+        if self.nt_map[table] == 2 && self.exram_mode < 2 {
+            self.exram[offset] = value;
+            return true;
+        }
+        self.nt_map[table] >= 2
+    }
+    fn background_chr_read(
+        &self,
+        chr: &[u8],
+        addr: u16,
+        x: usize,
+        _y: usize,
+        separate_bg_regs: bool,
+        nt: (usize, usize),
+    ) -> Option<u8> {
+        let split = self.split_active(x) && self.exram_mode < 2;
+        if split || self.exram_mode == 1 {
+            let bank = if split {
+                self.split_bank as usize
+            } else {
+                let ex = self.exram[(nt.1 * 32 + nt.0) & 0x3ff];
+                ((self.chr_upper as usize) << 6) | (ex as usize & 0x3f)
+            };
+            let index = (bank * 0x1000 + (addr as usize & 0x0fff)) % chr.len();
+            Some(chr[index])
+        } else {
+            let slot = (addr as usize >> 10) & 7;
+            let count = (chr.len() / 0x400).max(1);
+            Some(
+                chr[(self.chr_bank(slot, separate_bg_regs) * 0x400 + (addr as usize & 0x3ff))
+                    % (count * 0x400)],
+            )
+        }
+    }
+    fn clock_mmc5_scanline(&mut self, scanline: u16, rendering: bool) {
+        if rendering && scanline < 240 {
+            self.in_frame = true;
+            self.scanline = scanline as u8;
+            if self.scanline_target != 0 && self.scanline == self.scanline_target {
+                self.irq_pending = true;
+            }
+        } else {
+            self.in_frame = false;
+        }
+    }
+    fn ppu_frame_start(&mut self) {
+        self.in_frame = false;
+        self.scanline = 0;
+    }
+    fn irq_pending(&self) -> bool {
+        self.irq_pending && self.irq_enabled
+    }
+    fn nametable_ciram_page(&self, table: usize) -> Option<usize> {
+        match self.nt_map[table] & 3 {
+            0 => Some(0),
+            1 => Some(1),
+            _ => None,
+        }
+    }
+    fn read_slot_ram_index(&self, addr: u16) -> Option<usize> {
+        let slot = ((addr - 0x8000) / 0x2000) as usize;
+        if slot < 3 && self.slot_reg(slot) & 0x80 == 0 {
+            Some((self.slot_reg(slot) & 7) as usize * 0x2000 + (addr as usize & 0x1fff))
+        } else {
+            None
+        }
+    }
+    fn prg_slot_is_ram(&self, addr: u16) -> bool {
+        let slot = ((addr - 0x8000) / 0x2000) as usize;
+        slot < 3 && self.slot_reg(slot) & 0x80 == 0
+    }
+    fn write_slot_ram_index(&self, addr: u16) -> Option<usize> {
+        if self.prg_ram_writable() {
+            self.read_slot_ram_index(addr)
+        } else {
+            None
+        }
+    }
+    fn ppu_palette_for_split(&self, x: usize, _y: usize, nt: (usize, usize)) -> Option<u8> {
+        if self.split_active(x) && self.exram_mode < 2 {
+            Some(0)
+        } else if self.exram_mode == 1 {
+            Some((self.exram[(nt.1 * 32 + nt.0) & 0x3ff] >> 6) & 3)
+        } else {
+            None
+        }
+    }
+    fn background_tile(&self, x: usize, y: usize) -> Option<(u8, u8, u16)> {
+        if self.split_active(x) && self.exram_mode < 2 {
+            let sy = (y + self.split_scroll as usize) % 240;
+            let tile = self.exram[((sy / 8) * 32 + x.min(31)) & 0x3ff];
+            let coarse_x = x.min(31);
+            let coarse_y = sy / 8;
+            let attr_index = 0x3c0 + (coarse_y / 4) * 8 + (coarse_x / 4);
+            let attr = self.exram[attr_index];
+            let shift = ((coarse_y % 4) / 2) * 4 + ((coarse_x % 4) / 2) * 2;
+            Some((tile, (attr >> shift) & 3, self.split_bank as u16))
+        } else {
+            None
+        }
+    }
+    fn ppu_nametable_read(&self, addr: u16, attribute: bool, rendering: bool) -> Option<u8> {
+        if rendering && self.exram_mode == 1 {
+            let rel = addr.wrapping_sub(0x2000) & 0x0fff;
+            let table = (rel >> 10) as usize;
+            if rel & 0x3c0 == 0x3c0 && self.nt_map[table] != 3 {
+                Some(0)
+            } else {
+                self.nt_value(addr, attribute)
+            }
+        } else {
+            self.nt_value(addr, attribute)
+        }
     }
 }
 

@@ -32,6 +32,14 @@ pub const NOISE_PERIODS: [u16; 16] = [
 pub struct Apu {
     pulse1: Pulse,
     pulse2: Pulse,
+    mmc5_pulse1: Pulse,
+    mmc5_pulse2: Pulse,
+    mmc5_enabled: u8,
+    mmc5_pcm_mode: bool,
+    mmc5_pcm_irq_enabled: bool,
+    mmc5_pcm_irq: bool,
+    mmc5_pcm_value: u8,
+    mmc5_pcm_active: bool,
     triangle: Triangle,
     noise: Noise,
     dmc: Dmc,
@@ -174,6 +182,14 @@ impl Apu {
         Self {
             pulse1: Pulse::new(true),
             pulse2: Pulse::new(false),
+            mmc5_pulse1: Pulse::new_mmc5(),
+            mmc5_pulse2: Pulse::new_mmc5(),
+            mmc5_enabled: 0,
+            mmc5_pcm_mode: false,
+            mmc5_pcm_irq_enabled: false,
+            mmc5_pcm_irq: false,
+            mmc5_pcm_value: 0,
+            mmc5_pcm_active: false,
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
@@ -214,6 +230,14 @@ impl Apu {
     pub fn cpu_read(&mut self, addr: u16) -> u8 {
         match addr {
             0x4015 => self.status(),
+            0x5010 => {
+                let v = ((self.mmc5_pcm_irq && self.mmc5_pcm_irq_enabled) as u8) << 7 | 1;
+                self.mmc5_pcm_irq = false;
+                v
+            }
+            0x5015 => {
+                (self.mmc5_pulse1.length > 0) as u8 | (((self.mmc5_pulse2.length > 0) as u8) << 1)
+            }
             _ => 0,
         }
     }
@@ -261,7 +285,7 @@ impl Apu {
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
         if let Some(file) = self.trace_file.as_mut() {
             use std::io::Write;
-            if matches!(addr, 0x4000..=0x4017) {
+            if matches!(addr, 0x4000..=0x4017 | 0x5000..=0x5015) {
                 let _ = writeln!(file, "{} W {:04x} {:02x}", self.cpu_cycle, addr, value);
             }
         }
@@ -275,6 +299,30 @@ impl Apu {
         }
 
         match addr {
+            0x5000..=0x5003 => self.mmc5_pulse1.write(addr - 0x5000, value),
+            0x5004..=0x5007 => self.mmc5_pulse2.write(addr - 0x5004, value),
+            0x5010 => {
+                self.mmc5_pcm_mode = value & 1 != 0;
+                self.mmc5_pcm_irq_enabled = value & 0x80 != 0;
+            }
+            0x5011 => {
+                if !self.mmc5_pcm_mode {
+                    self.mmc5_pcm_value = value;
+                    self.mmc5_pcm_active = true;
+                    self.mmc5_pcm_irq = value == 0;
+                }
+            }
+            0x5015 => {
+                self.mmc5_enabled = value & 3;
+                self.mmc5_pulse1.enabled = value & 1 != 0;
+                self.mmc5_pulse2.enabled = value & 2 != 0;
+                if value & 1 == 0 {
+                    self.mmc5_pulse1.length = 0;
+                }
+                if value & 2 == 0 {
+                    self.mmc5_pulse2.length = 0;
+                }
+            }
             0x4000..=0x4003 => {
                 self.pulse1.write(addr - 0x4000, value);
             }
@@ -311,6 +359,8 @@ impl Apu {
         self.frame_counter.clock(
             &mut self.pulse1,
             &mut self.pulse2,
+            &mut self.mmc5_pulse1,
+            &mut self.mmc5_pulse2,
             &mut self.triangle,
             &mut self.noise,
         );
@@ -319,6 +369,8 @@ impl Apu {
             self.pulse1.clock_timer();
             self.pulse2.clock_timer();
             self.dmc.clock_timer();
+            self.mmc5_pulse1.clock_timer();
+            self.mmc5_pulse2.clock_timer();
         }
 
         // The triangle and noise timers are clocked every CPU
@@ -377,7 +429,7 @@ impl Apu {
             self.pulse2.output()
         };
 
-        let pulse = p1 + p2;
+        let pulse = p1 + p2 + self.mmc5_pulse1.mmc5_output() + self.mmc5_pulse2.mmc5_output();
 
         let pulse_out = if pulse <= 0.0 {
             0.0
@@ -409,7 +461,12 @@ impl Apu {
             159.79 / ((1.0 / tnd) + 100.0)
         };
 
-        (pulse_out + tnd_out).clamp(0.0, 1.0)
+        let pcm = if self.mmc5_pcm_active {
+            (255 - self.mmc5_pcm_value) as f32 / 510.0
+        } else {
+            0.0
+        };
+        (pulse_out + tnd_out + pcm).clamp(0.0, 1.0)
     }
 
     fn set_enable(&mut self, value: u8) {
@@ -478,10 +535,9 @@ impl Apu {
      * cycle and, when a fetch is pending, performs the actual
      * `Bus::read` and feeds the byte back in.
      */
-    // True while any APU interrupt source is asserting the CPU's
-    // IRQ line. Only the DMC IRQ is modelled so far.
+    // True while any modeled APU interrupt source is asserting IRQ.
     pub fn irq_line(&self) -> bool {
-        self.dmc.irq_flag
+        self.dmc.irq_flag || self.mmc5_pcm_irq && self.mmc5_pcm_irq_enabled
     }
 
     pub fn take_pending_dmc_fetch(&mut self) -> Option<u16> {
@@ -491,6 +547,17 @@ impl Apu {
     pub fn feed_dmc_byte(&mut self, byte: u8) {
         self.debug_fetches += 1;
         self.dmc.feed_byte(byte);
+    }
+
+    pub fn mmc5_pcm_read(&mut self, byte: u8) {
+        if self.mmc5_pcm_mode {
+            if byte == 0 {
+                self.mmc5_pcm_irq = true;
+            } else {
+                self.mmc5_pcm_value = byte;
+                self.mmc5_pcm_active = true;
+            }
+        }
     }
 
     pub fn take_samples(&mut self) -> Vec<f32> {

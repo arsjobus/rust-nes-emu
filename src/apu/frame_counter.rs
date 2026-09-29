@@ -22,6 +22,8 @@ impl FrameCounter {
         &mut self,
         p1: &mut Pulse,
         p2: &mut Pulse,
+        mmc5_p1: &mut Pulse,
+        mmc5_p2: &mut Pulse,
         triangle: &mut Triangle,
         noise: &mut Noise,
     ) {
@@ -32,6 +34,8 @@ impl FrameCounter {
         if self.cycle % QUARTER == 0 {
             p1.clock_envelope();
             p2.clock_envelope();
+            mmc5_p1.clock_envelope();
+            mmc5_p2.clock_envelope();
             noise.clock_envelope();
 
             triangle.clock_linear_counter();
@@ -40,6 +44,8 @@ impl FrameCounter {
         if self.cycle % (QUARTER * 2) == 0 {
             p1.clock_length();
             p2.clock_length();
+            mmc5_p1.clock_length();
+            mmc5_p2.clock_length();
 
             triangle.clock_length();
             noise.clock_length();

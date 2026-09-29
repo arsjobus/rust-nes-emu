@@ -11,6 +11,7 @@ Games which have mappers as:
 - Mapper 4 (MMC3)
 - Mapper 5 (MMC5) - PRG/CHR banking, ExRAM and fill nametables, extended attributes,
   vertical split, scanline IRQs, multiplier, PRG RAM protection, and expansion audio
+  (scanline features follow the emulator's scanline-level PPU timing)
 - Mapper 7 [partial] (AxROM)
 - Mapper 9 (MMC2)
 - Mapper 66 (GxROM)

@@ -83,11 +83,15 @@ impl Ppu {
 
         let offset = (relative & 0x03ff) as usize;
 
-        let physical = match self.cart.mirroring {
-            crate::cartridge::Mirroring::Vertical => table & 1,
-            crate::cartridge::Mirroring::Horizontal => (table >> 1) & 1,
-            crate::cartridge::Mirroring::OneScreenLower => 0,
-            crate::cartridge::Mirroring::OneScreenUpper => 1,
+        let physical = if let Some(page) = self.cart.nametable_ciram_page(table) {
+            page
+        } else {
+            match self.cart.mirroring {
+                crate::cartridge::Mirroring::Vertical => table & 1,
+                crate::cartridge::Mirroring::Horizontal => (table >> 1) & 1,
+                crate::cartridge::Mirroring::OneScreenLower => 0,
+                crate::cartridge::Mirroring::OneScreenUpper => 1,
+            }
         };
 
         physical * 0x400 + offset
@@ -107,9 +111,14 @@ impl Ppu {
         let addr = addr & 0x3fff;
 
         if addr < 0x2000 {
-            self.cart.chr_read(addr)
+            self.cart.chr_io_read(addr)
         } else if addr < 0x3f00 {
-            self.vram[self.nt_index(addr)]
+            let rel = (addr - 0x2000) & 0x0fff;
+            let attribute = rel & 0x3c0 == 0x3c0;
+            let rendering = self.mask & 0x18 != 0 && (0..=239).contains(&self.scanline);
+            self.cart
+                .ppu_nametable_read(addr, attribute, rendering)
+                .unwrap_or_else(|| self.vram[self.nt_index(addr)])
         } else {
             self.palette[Self::palette_index(addr)]
         }
@@ -119,11 +128,13 @@ impl Ppu {
         let addr = addr & 0x3fff;
 
         if addr < 0x2000 {
-            self.cart.chr_write(addr, value);
+            self.cart.chr_io_write(addr, value);
         } else if addr < 0x3f00 {
-            let index = self.nt_index(addr);
-
-            self.vram[index] = value;
+            let rendering = self.mask & 0x18 != 0 && (0..=239).contains(&self.scanline);
+            if !self.cart.ppu_nametable_write(addr, value, rendering) {
+                let index = self.nt_index(addr);
+                self.vram[index] = value;
+            }
         } else {
             self.palette[Self::palette_index(addr)] = value & 0x3f;
         }
@@ -317,7 +328,11 @@ impl Ppu {
         if self.scanline > 261 {
             self.scanline = 0;
             self.frame_ready = true;
+            self.cart.ppu_frame_start();
         }
+
+        self.cart
+            .clock_mmc5_scanline(self.scanline.max(0) as u16, self.mask & 0x18 != 0);
 
         match self.scanline {
             0..=239 => {
