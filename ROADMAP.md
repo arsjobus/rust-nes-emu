@@ -4,8 +4,8 @@ This roadmap tracks practical improvements to **runes**, a Rust NES emulator. It
 
 ## Near term
 
-- [ ] **Launch without a ROM:** open the emulator window with a classic untuned-TV screen (animated snow/static and subtle flicker or hum). Keep `runes <game.nes>` as the direct-to-game path, and provide a clear way to choose or open a ROM from the idle screen.
-- [ ] **ROM selection and library:** let users browse for a ROM, show recently played games, and explain unsupported or invalid ROM errors in the UI.
+- [X] **Launch without a ROM:** open the emulator window with a classic untuned-TV screen (animated snow/static and subtle flicker or hum). Keep `runes <game.nes>` as the direct-to-game path, and provide a clear way to choose or open a ROM from the idle screen.
+- [X] **ROM selection and library:** let users browse for a ROM, show recently played games, and explain unsupported or invalid ROM errors in the UI.
 - [ ] **Save RAM persistence:** load and save battery-backed cartridge RAM beside the ROM, with safe writes on exit.
 - [ ] **Input configuration:** support remapping keyboard and gamepad buttons, and show connected controller status.
 - [ ] **Configuration and presentation:** save preferences for display effects, scaling, audio, and controls; make effects easy to enable from the UI as well as command-line flags.

@@ -1,5 +1,7 @@
 use gilrs::{Button, EventType, Gilrs};
-use minifb::{Key, Window, WindowOptions};
+use sdl2::{
+    event::Event, keyboard::Scancode, pixels::PixelFormatEnum, rect::Rect, render::ScaleMode,
+};
 use std::{fs, path::PathBuf};
 
 use std::{
@@ -20,8 +22,6 @@ const HEIGHT: usize = 240;
 
 const INITIAL_SCALE: usize = 3;
 
-const BORDER_COLOR: u32 = 0x000000;
-
 pub fn run(mut nes: Option<Nes>, args: &[String]) {
     /*
      * ---------------------------------------------------------
@@ -36,67 +36,56 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    let initial_width = WIDTH * INITIAL_SCALE;
-
-    let initial_height = HEIGHT * INITIAL_SCALE;
-
-    let mut window = Window::new(
-        "RuNES",
-        initial_width,
-        initial_height,
-        WindowOptions {
-            resize: true,
-            scale: minifb::Scale::X1,
-            ..WindowOptions::default()
-        },
-    )
-    .expect("Could not create window");
-
-    window.set_target_fps(60);
-
-    /*
-     * ---------------------------------------------------------
-     * Display framebuffer
-     * ---------------------------------------------------------
-     *
-     * This is separate from the PPU framebuffer.
-     *
-     * PPU:
-     *
-     *     256 x 240
-     *
-     * Display:
-     *
-     *     Whatever size the window currently is.
-     * ---------------------------------------------------------
-     */
-
-    let mut display_buffer = vec![BORDER_COLOR; initial_width * initial_height];
-
-    /*
-     * ---------------------------------------------------------
-     * Audio
-     * ---------------------------------------------------------
-     */
-
+    let sdl = sdl2::init().expect("Could not initialize SDL");
+    let video = sdl.video().expect("Could not initialize SDL video");
+    let audio_subsystem = sdl.audio().ok();
+    let window = video
+        .window(
+            "RuNES",
+            (WIDTH * INITIAL_SCALE) as u32,
+            (HEIGHT * INITIAL_SCALE) as u32,
+        )
+        .position_centered()
+        .resizable()
+        .allow_highdpi()
+        .build()
+        .expect("Could not create window");
+    let mut canvas = window
+        .into_canvas()
+        .accelerated()
+        .present_vsync()
+        .build()
+        .or_else(|_| {
+            video
+                .window(
+                    "RuNES",
+                    (WIDTH * INITIAL_SCALE) as u32,
+                    (HEIGHT * INITIAL_SCALE) as u32,
+                )
+                .position_centered()
+                .resizable()
+                .allow_highdpi()
+                .build()
+                .unwrap()
+                .into_canvas()
+                .software()
+                .build()
+        })
+        .expect("Could not create SDL renderer");
+    let texture_creator = canvas.texture_creator();
+    let mut texture = texture_creator
+        .create_texture_streaming(PixelFormatEnum::RGBA32, WIDTH as u32, HEIGHT as u32)
+        .expect("Could not create framebuffer texture");
+    texture.set_scale_mode(ScaleMode::Nearest);
+    let mut event_pump = sdl.event_pump().expect("Could not create SDL event pump");
+    let mut rgba_buffer = vec![0u8; WIDTH * HEIGHT * 4];
     let mut audio: Option<Audio> = if nes.is_some() {
-        Audio::new().ok()
+        audio_subsystem
+            .as_ref()
+            .and_then(|subsystem| Audio::new(subsystem).ok())
     } else {
         None
     };
-
-    /*
-     * ---------------------------------------------------------
-     * The APU must generate samples at exactly the rate the
-     * audio device is actually being driven at, or the audio
-     * queue's producer (APU) and consumer (the device's callback)
-     * disagree on rate and slowly drift apart in real time -
-     * eventually causing periodic, audible clicking as the queue
-     * overflows or underflows, regardless of what's actually
-     * playing in the game. This must happen before the main loop
-     * before the first emulated frame.
-     * ---------------------------------------------------------
-     */
     if let (Some(audio), Some(nes)) = (audio.as_ref(), nes.as_mut()) {
         nes.bus.apu.set_sample_rate(audio.sample_rate() as f64);
     }
@@ -217,7 +206,7 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
 
     let mut frame_count = 0u64;
     let mut noise_seed = 0x5eed_u32;
-    let mut idle_framebuffer = vec![BORDER_COLOR; WIDTH * HEIGHT];
+    let mut idle_framebuffer = vec![0; WIDTH * HEIGHT];
     let mut roms = find_roms();
     let mut selection = 0usize;
     let mut previous_up = false;
@@ -248,12 +237,27 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
      * ---------------------------------------------------------
      */
 
-    while window.is_open() && !window.is_key_down(Key::Escape) {
-        let up = window.is_key_down(Key::Up);
-        let down = window.is_key_down(Key::Down);
-        let enter = window.is_key_down(Key::Enter);
-        let open = window.is_key_down(Key::O);
-        let reset = window.is_key_down(Key::R);
+    let mut running = true;
+    while running {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    scancode: Some(Scancode::Escape),
+                    ..
+                } => running = false,
+                _ => {}
+            }
+        }
+        if !running {
+            break;
+        }
+        let keyboard = event_pump.keyboard_state();
+        let up = keyboard.is_scancode_pressed(Scancode::Up);
+        let down = keyboard.is_scancode_pressed(Scancode::Down);
+        let enter = keyboard.is_scancode_pressed(Scancode::Return);
+        let open = keyboard.is_scancode_pressed(Scancode::O);
+        let reset = keyboard.is_scancode_pressed(Scancode::R);
 
         if nes.is_some() && reset && !previous_reset {
             nes = None;
@@ -283,7 +287,9 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                             nes = Some(Nes::new(cart));
                             menu_gamepad = None;
                             if audio.is_none() {
-                                audio = Audio::new().ok();
+                                audio = audio_subsystem
+                                    .as_ref()
+                                    .and_then(|subsystem| Audio::new(subsystem).ok());
                                 if let (Some(audio), Some(nes)) = (audio.as_ref(), nes.as_mut()) {
                                     nes.bus.apu.set_sample_rate(audio.sample_rate() as f64);
                                 }
@@ -301,9 +307,8 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         previous_pad_up = pad_up;
         previous_pad_down = pad_down;
         previous_pad_select = pad_select;
-
         if let Some(nes) = nes.as_mut() {
-            nes.update_input(&window);
+            nes.update_input(&keyboard);
             nes.run_frame();
             let samples = nes.take_audio_samples();
             if let Some(audio) = audio.as_mut() {
@@ -312,33 +317,6 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
             postprocess.apply(nes.framebuffer_mut(), WIDTH, HEIGHT);
         }
 
-        /*
-         * -----------------------------------------------------
-         * Get current window size.
-         * -----------------------------------------------------
-         */
-
-        let (window_width, window_height) = window.get_size();
-
-        /*
-         * -----------------------------------------------------
-         * Reallocate display buffer only when necessary.
-         * -----------------------------------------------------
-         */
-
-        let required_size = window_width * window_height;
-
-        if display_buffer.len() != required_size {
-            display_buffer = vec![BORDER_COLOR; required_size];
-        }
-
-        /*
-         * -----------------------------------------------------
-         * Clear the window.
-         * -----------------------------------------------------
-         */
-
-        display_buffer.fill(BORDER_COLOR);
         if nes.is_none() {
             for y in 0..HEIGHT {
                 for x in 0..WIDTH {
@@ -349,105 +327,37 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
             draw_idle_overlay(&mut idle_framebuffer, WIDTH, HEIGHT, &roms, selection);
         }
 
-        /*
-         * -----------------------------------------------------
-         * Calculate scaling.
-         *
-         * We preserve the NES framebuffer's native aspect
-         * ratio of 256:240.
-         *
-         * The image is enlarged as much as possible while
-         * remaining completely visible.
-         *
-         * We use integer scaling whenever possible.
-         * -----------------------------------------------------
-         */
-
-        let integer_scale = (window_width / WIDTH).min(window_height / HEIGHT);
-
-        let (scaled_width, scaled_height) = if integer_scale >= 1 {
-            (WIDTH * integer_scale, HEIGHT * integer_scale)
-        } else {
-            /*
-             * Extremely small window.
-             *
-             * Allow fractional scaling so the game remains
-             * visible instead of disappearing.
-             */
-
-            let scale_x = window_width as f32 / WIDTH as f32;
-
-            let scale_y = window_height as f32 / HEIGHT as f32;
-
-            let scale = scale_x.min(scale_y);
-
-            (
-                (WIDTH as f32 * scale) as usize,
-                (HEIGHT as f32 * scale) as usize,
-            )
-        };
-
-        if scaled_width == 0 || scaled_height == 0 {
-            continue;
-        }
-
-        /*
-         * -----------------------------------------------------
-         * Center the game image.
-         * -----------------------------------------------------
-         */
-
-        let offset_x = (window_width - scaled_width) / 2;
-
-        let offset_y = (window_height - scaled_height) / 2;
-
-        /*
-         * -----------------------------------------------------
-         * Nearest-neighbor scaling.
-         *
-         * This keeps NES pixels sharp instead of applying
-         * interpolation/blur.
-         * -----------------------------------------------------
-         */
-
         let source = nes
             .as_ref()
             .map_or(idle_framebuffer.as_slice(), Nes::framebuffer);
-        for dest_y in 0..scaled_height {
-            let source_y = dest_y * HEIGHT / scaled_height;
-
-            let window_y = offset_y + dest_y;
-
-            if window_y >= window_height {
-                continue;
-            }
-
-            for dest_x in 0..scaled_width {
-                let source_x = dest_x * WIDTH / scaled_width;
-
-                let window_x = offset_x + dest_x;
-
-                if window_x >= window_width {
-                    continue;
-                }
-
-                let source_index = source_y * WIDTH + source_x;
-
-                let destination_index = window_y * window_width + window_x;
-
-                display_buffer[destination_index] = source[source_index];
-            }
+        for (pixel, rgba) in source.iter().zip(rgba_buffer.chunks_exact_mut(4)) {
+            rgba[0] = (pixel >> 16) as u8;
+            rgba[1] = (pixel >> 8) as u8;
+            rgba[2] = *pixel as u8;
+            rgba[3] = 255;
         }
-
-        /*
-         * -----------------------------------------------------
-         * Present frame.
-         * -----------------------------------------------------
-         */
-
-        window
-            .update_with_buffer(&display_buffer, window_width, window_height)
-            .expect("Failed to update window");
+        texture
+            .update(None, &rgba_buffer, WIDTH * 4)
+            .expect("Failed to update framebuffer texture");
+        let (window_width, window_height) = canvas.output_size().unwrap_or((0, 0));
+        if window_width > 0 && window_height > 0 {
+            let scale =
+                (window_width as f64 / WIDTH as f64).min(window_height as f64 / HEIGHT as f64);
+            let scaled_width = (WIDTH as f64 * scale) as u32;
+            let scaled_height = (HEIGHT as f64 * scale) as u32;
+            let destination = Rect::new(
+                ((window_width - scaled_width) / 2) as i32,
+                ((window_height - scaled_height) / 2) as i32,
+                scaled_width,
+                scaled_height,
+            );
+            canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 0, 0));
+            canvas.clear();
+            canvas
+                .copy(&texture, None, destination)
+                .expect("Failed to render framebuffer");
+            canvas.present();
+        }
 
         /*
          * -----------------------------------------------------

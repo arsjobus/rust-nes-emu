@@ -26,6 +26,8 @@ The idle screen lists `.nes` files in the current folder and searches `roms/` re
 1) `cargo build --release`
 2) `./target/release/runes roms/{game}.nes`
 
+SDL2 is built from source through the Rust SDL2 bindings. Building requires a C compiler and CMake; no separate SDL2 installation is needed.
+
 ## Project Structure
 
 ```

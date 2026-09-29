@@ -1,4 +1,4 @@
-use minifb::Key;
+use sdl2::keyboard::{KeyboardState, Scancode};
 
 use crate::{
     bus::Bus,
@@ -64,7 +64,7 @@ impl Nes {
         self.bus.apu.take_samples()
     }
 
-    pub fn update_input(&mut self, window: &minifb::Window) {
+    pub fn update_input(&mut self, keyboard: &KeyboardState<'_>) {
         /*
          * ---------------------------------------------------------
          * USB controller
@@ -87,35 +87,40 @@ impl Nes {
 
         self.bus
             .controller
-            .set_button(NesButton::A, window.is_key_down(Key::Z));
+            .set_button(NesButton::A, keyboard.is_scancode_pressed(Scancode::Z));
 
         self.bus
             .controller
-            .set_button(NesButton::B, window.is_key_down(Key::X));
+            .set_button(NesButton::B, keyboard.is_scancode_pressed(Scancode::X));
+
+        self.bus.controller.set_button(
+            NesButton::Select,
+            keyboard.is_scancode_pressed(Scancode::Space),
+        );
+
+        self.bus.controller.set_button(
+            NesButton::Start,
+            keyboard.is_scancode_pressed(Scancode::Return),
+        );
 
         self.bus
             .controller
-            .set_button(NesButton::Select, window.is_key_down(Key::Space));
+            .set_button(NesButton::Up, keyboard.is_scancode_pressed(Scancode::Up));
 
-        self.bus
-            .controller
-            .set_button(NesButton::Start, window.is_key_down(Key::Enter));
+        self.bus.controller.set_button(
+            NesButton::Down,
+            keyboard.is_scancode_pressed(Scancode::Down),
+        );
 
-        self.bus
-            .controller
-            .set_button(NesButton::Up, window.is_key_down(Key::Up));
+        self.bus.controller.set_button(
+            NesButton::Left,
+            keyboard.is_scancode_pressed(Scancode::Left),
+        );
 
-        self.bus
-            .controller
-            .set_button(NesButton::Down, window.is_key_down(Key::Down));
-
-        self.bus
-            .controller
-            .set_button(NesButton::Left, window.is_key_down(Key::Left));
-
-        self.bus
-            .controller
-            .set_button(NesButton::Right, window.is_key_down(Key::Right));
+        self.bus.controller.set_button(
+            NesButton::Right,
+            keyboard.is_scancode_pressed(Scancode::Right),
+        );
     }
 }
 
