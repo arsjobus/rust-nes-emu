@@ -330,6 +330,9 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                 audio.push_samples(&samples);
             }
             postprocess.apply(nes.framebuffer_mut(), WIDTH, HEIGHT);
+            if nes.turbo_enabled() {
+                draw_text(nes.framebuffer_mut(), WIDTH, HEIGHT, 2, 2, "TURBO", 1, 0xffffff);
+            }
         }
 
         if nes.is_none() {

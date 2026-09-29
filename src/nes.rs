@@ -59,6 +59,10 @@ impl Nes {
         &mut self.bus.ppu.framebuffer
     }
 
+    pub fn turbo_enabled(&self) -> bool {
+        self.bus.controller.turbo_enabled()
+    }
+
     pub fn take_audio_samples(&mut self) -> Vec<f32> {
         self.bus.apu.take_samples()
     }

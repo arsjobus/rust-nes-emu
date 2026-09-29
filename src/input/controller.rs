@@ -391,6 +391,10 @@ impl Controller {
         }
     }
 
+    pub fn turbo_enabled(&self) -> bool {
+        self.turbo_enabled
+    }
+
     #[allow(dead_code)] // Useful to front ends that display controller status.
     pub fn is_connected(&self) -> bool {
         self.gamepad_id.is_some()
