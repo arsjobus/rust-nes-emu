@@ -94,7 +94,7 @@ fn print_usage() {
     eprintln!("Idle screen:");
     eprintln!("  runes                   Show TV static and choose a ROM");
     eprintln!("  Up/Down or D-pad        Navigate the ROM list");
-    eprintln!("  Enter, gamepad A/Start  Launch the selected ROM");
+    eprintln!("  Enter, gamepad A/B/Start Launch the selected ROM");
     eprintln!("  O                       Rescan current folder and roms/");
     eprintln!("  R                       Return from a game to the ROM menu");
     eprintln!();

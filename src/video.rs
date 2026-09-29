@@ -567,7 +567,9 @@ fn menu_gamepad_state(gilrs: &mut Option<Gilrs>) -> (bool, bool, bool) {
                 gamepad.is_pressed(Button::DPadUp) || gamepad.value(gilrs::Axis::LeftStickY) < -0.5;
             let down = gamepad.is_pressed(Button::DPadDown)
                 || gamepad.value(gilrs::Axis::LeftStickY) > 0.5;
-            let select = gamepad.is_pressed(Button::South) || gamepad.is_pressed(Button::Start);
+            let select = gamepad.is_pressed(Button::South)
+                || gamepad.is_pressed(Button::East)
+                || gamepad.is_pressed(Button::Start);
             (up, down, select)
         })
 }
