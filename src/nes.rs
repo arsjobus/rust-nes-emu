@@ -18,28 +18,19 @@ impl Nes {
         let controller = Controller::new();
         let ppu = Ppu::new(cart);
 
-        let mut bus = Bus::new(
-            ppu,
-            controller,
-        );
+        let mut bus = Bus::new(ppu, controller);
 
         let mut cpu = Cpu::new();
         cpu.reset(&mut bus);
 
-        Self {
-            cpu,
-            bus,
-        }
+        Self { cpu, bus }
     }
 
     pub fn run_frame(&mut self) {
         while !self.bus.ppu.frame_ready {
-            let cycles =
-                self.cpu.step(&mut self.bus);
+            let cycles = self.cpu.step(&mut self.bus);
 
-            self.bus.ppu.catch_up(
-                (cycles * 3) as i32
-            );
+            self.bus.ppu.catch_up((cycles * 3) as i32);
 
             self.bus.clock_apu(cycles);
 
@@ -73,10 +64,7 @@ impl Nes {
         self.bus.apu.take_samples()
     }
 
-    pub fn update_input(
-        &mut self,
-        window: &minifb::Window,
-    ) {
+    pub fn update_input(&mut self, window: &minifb::Window) {
         /*
          * ---------------------------------------------------------
          * USB controller
@@ -97,45 +85,37 @@ impl Nes {
          * ---------------------------------------------------------
          */
 
-        self.bus.controller.set_button(
-            NesButton::A,
-            window.is_key_down(Key::Z),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::A, window.is_key_down(Key::Z));
 
-        self.bus.controller.set_button(
-            NesButton::B,
-            window.is_key_down(Key::X),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::B, window.is_key_down(Key::X));
 
-        self.bus.controller.set_button(
-            NesButton::Select,
-            window.is_key_down(Key::Space),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::Select, window.is_key_down(Key::Space));
 
-        self.bus.controller.set_button(
-            NesButton::Start,
-            window.is_key_down(Key::Enter),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::Start, window.is_key_down(Key::Enter));
 
-        self.bus.controller.set_button(
-            NesButton::Up,
-            window.is_key_down(Key::Up),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::Up, window.is_key_down(Key::Up));
 
-        self.bus.controller.set_button(
-            NesButton::Down,
-            window.is_key_down(Key::Down),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::Down, window.is_key_down(Key::Down));
 
-        self.bus.controller.set_button(
-            NesButton::Left,
-            window.is_key_down(Key::Left),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::Left, window.is_key_down(Key::Left));
 
-        self.bus.controller.set_button(
-            NesButton::Right,
-            window.is_key_down(Key::Right),
-        );
+        self.bus
+            .controller
+            .set_button(NesButton::Right, window.is_key_down(Key::Right));
     }
 }
 

@@ -27,12 +27,7 @@ impl PostProcessEffect for Scanlines {
         self.enabled = enabled;
     }
 
-    fn apply(
-        &self,
-        framebuffer: &mut [u32],
-        width: usize,
-        height: usize,
-    ) {
+    fn apply(&self, framebuffer: &mut [u32], width: usize, height: usize) {
         for y in 0..height {
             // Darken alternate scanlines.
             if y % 2 == 0 {
@@ -54,10 +49,7 @@ impl PostProcessEffect for Scanlines {
                 let g = (g * factor) as u32;
                 let b = (b * factor) as u32;
 
-                framebuffer[index] =
-                    (r << 16) |
-                    (g << 8) |
-                    b;
+                framebuffer[index] = (r << 16) | (g << 8) | b;
             }
         }
     }

@@ -2,13 +2,7 @@ use std::fs;
 
 mod mapper;
 
-pub use mapper::{
-    GxromMapper,
-    Mapper,
-    Mmc2Mapper,
-    NromMapper,
-    UxromMapper,
-};
+pub use mapper::{GxromMapper, Mapper, Mmc2Mapper, NromMapper, UxromMapper};
 
 const PRG_RAM_SIZE: usize = 8 * 1024;
 
@@ -32,6 +26,7 @@ pub struct Cartridge {
     // it. It is not battery backed, so it starts zeroed every run.
     pub(crate) prg_ram: [u8; PRG_RAM_SIZE],
 
+    #[allow(dead_code)] // Exposed cartridge metadata for callers that inspect loaded ROMs.
     pub mapper_kind: MapperKind,
 
     pub mirroring_vertical: bool,
@@ -41,48 +36,32 @@ pub struct Cartridge {
 
 impl Cartridge {
     pub fn load(path: &str) -> Result<Self, String> {
-        let data =
-            fs::read(path)
-                .map_err(|e| e.to_string())?;
+        let data = fs::read(path).map_err(|e| e.to_string())?;
 
-        if data.len() < 16 ||
-           &data[0..4] != b"NES\x1a"
-        {
-            return Err(
-                "Not a valid iNES ROM".into()
-            );
+        if data.len() < 16 || &data[0..4] != b"NES\x1a" {
+            return Err("Not a valid iNES ROM".into());
         }
 
-        let prg_units =
-            data[4] as usize;
+        let prg_units = data[4] as usize;
 
-        let chr_units =
-            data[5] as usize;
+        let chr_units = data[5] as usize;
 
-        let flags6 =
-            data[6];
+        let flags6 = data[6];
 
-        let flags7 =
-            data[7];
+        let flags7 = data[7];
 
         // iNES mapper number:
         //
         // flags 7 bits 4-7 = mapper high nibble
         // flags 6 bits 4-7 = mapper low nibble
-        let mapper_num =
-            (flags7 & 0xf0) |
-            (flags6 >> 4);
+        let mapper_num = (flags7 & 0xf0) | (flags6 >> 4);
 
-        let vertical =
-            flags6 & 1 != 0;
+        let vertical = flags6 & 1 != 0;
 
-        let trainer =
-            flags6 & 4 != 0;
+        let trainer = flags6 & 4 != 0;
 
         if prg_units == 0 {
-            return Err(
-                "ROM has no PRG data".into()
-            );
+            return Err("ROM has no PRG data".into());
         }
 
         let mut offset = 16;
@@ -91,83 +70,47 @@ impl Cartridge {
             offset += 512;
         }
 
-        let prg_size =
-            prg_units * 16_384;
+        let prg_size = prg_units * 16_384;
 
-        let chr_size =
-            chr_units * 8_192;
+        let chr_size = chr_units * 8_192;
 
         if offset + prg_size > data.len() {
-            return Err(
-                "ROM is truncated".into()
-            );
+            return Err("ROM is truncated".into());
         }
 
-        let prg =
-            data[offset..offset + prg_size]
-                .to_vec();
+        let prg = data[offset..offset + prg_size].to_vec();
 
         offset += prg_size;
 
-        let (chr, chr_ram) =
-            if chr_size == 0 {
-                // No CHR ROM means the cartridge
-                // uses CHR RAM.
-                (
-                    vec![0u8; 8192],
-                    true,
-                )
-            } else {
-                if offset + chr_size > data.len() {
-                    return Err(
-                        "ROM CHR data is truncated"
-                            .into()
-                    );
-                }
+        let (chr, chr_ram) = if chr_size == 0 {
+            // No CHR ROM means the cartridge
+            // uses CHR RAM.
+            (vec![0u8; 8192], true)
+        } else {
+            if offset + chr_size > data.len() {
+                return Err("ROM CHR data is truncated".into());
+            }
 
-                (
-                    data[offset..offset + chr_size]
-                        .to_vec(),
-                    false,
-                )
-            };
+            (data[offset..offset + chr_size].to_vec(), false)
+        };
 
-        let (mapper_kind, mapper):
-            (MapperKind, Box<dyn Mapper>) =
-            match mapper_num {
-                // Mapper 0 - NROM
-                0 => (
-                    MapperKind::Nrom,
-                    Box::new(NromMapper::new()),
-                ),
+        let (mapper_kind, mapper): (MapperKind, Box<dyn Mapper>) = match mapper_num {
+            // Mapper 0 - NROM
+            0 => (MapperKind::Nrom, Box::new(NromMapper::new())),
 
-                // Mapper 2 - UxROM
-                2 => (
-                    MapperKind::Uxrom,
-                    Box::new(UxromMapper::new()),
-                ),
+            // Mapper 2 - UxROM
+            2 => (MapperKind::Uxrom, Box::new(UxromMapper::new())),
 
-                // Mapper 66 - GxROM
-                66 => (
-                    MapperKind::Gxrom,
-                    Box::new(GxromMapper::new()),
-                ),
+            // Mapper 66 - GxROM
+            66 => (MapperKind::Gxrom, Box::new(GxromMapper::new())),
 
-                // Mapper 9 - MMC2
-                9 => (
-                    MapperKind::Mmc2,
-                    Box::new(Mmc2Mapper::new(vertical)),
-                ),
+            // Mapper 9 - MMC2
+            9 => (MapperKind::Mmc2, Box::new(Mmc2Mapper::new(vertical))),
 
-                n => {
-                    return Err(
-                        format!(
-                            "Unsupported mapper {}",
-                            n
-                        )
-                    );
-                }
-            };
+            n => {
+                return Err(format!("Unsupported mapper {}", n));
+            }
+        };
 
         println!("Loaded ROM: {}", path);
 
@@ -177,11 +120,7 @@ impl Cartridge {
             prg_size / 1024,
             chr_size / 1024,
             chr_ram,
-            if vertical {
-                "vertical"
-            } else {
-                "horizontal"
-            }
+            if vertical { "vertical" } else { "horizontal" }
         );
 
         Ok(Self {
@@ -207,25 +146,14 @@ impl Cartridge {
             0x0000..=0x5fff => 0,
 
             // $6000-$7FFF: PRG RAM.
-            0x6000..=0x7fff => {
-                self.prg_ram[(addr - 0x6000) as usize]
-            }
+            0x6000..=0x7fff => self.prg_ram[(addr - 0x6000) as usize],
 
             // $8000-$FFFF: PRG ROM, banked by the mapper.
-            0x8000..=0xffff => {
-                self.mapper.cpu_read(
-                    &self.prg,
-                    addr,
-                )
-            }
+            0x8000..=0xffff => self.mapper.cpu_read(&self.prg, addr),
         }
     }
 
-    pub fn cpu_write(
-        &mut self,
-        addr: u16,
-        value: u8,
-    ) {
+    pub fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
             // Unmapped: writes are ignored.
             0x0000..=0x5fff => {}
@@ -240,19 +168,13 @@ impl Cartridge {
 
             // $8000-$FFFF: mapper registers.
             0x8000..=0xffff => {
-                self.mapper.cpu_write(
-                    &self.prg,
-                    addr,
-                    value,
-                );
+                self.mapper.cpu_write(&self.prg, addr, value);
 
                 // Some mappers (e.g. MMC2/MMC4) can switch
                 // mirroring at runtime via a CPU-mapped register
                 // rather than it being fixed by the iNES header,
                 // so re-sync it after every register write.
-                if let Some(vertical) =
-                    self.mapper.mirroring_override()
-                {
+                if let Some(vertical) = self.mapper.mirroring_override() {
                     self.mirroring_vertical = vertical;
                 }
             }
@@ -260,23 +182,12 @@ impl Cartridge {
     }
 
     pub fn chr_read(&self, addr: u16) -> u8 {
-        self.mapper.chr_read(
-            &self.chr,
-            addr,
-        )
+        self.mapper.chr_read(&self.chr, addr)
     }
 
-    pub fn chr_write(
-        &mut self,
-        addr: u16,
-        value: u8,
-    ) {
-        self.mapper.chr_write(
-            &mut self.chr,
-            addr,
-            value,
-            self.chr_ram,
-        );
+    pub fn chr_write(&mut self, addr: u16, value: u8) {
+        self.mapper
+            .chr_write(&mut self.chr, addr, value, self.chr_ram);
     }
 }
 
@@ -289,12 +200,7 @@ pub(crate) mod test_support {
 
     /// Builds a 16 KiB NROM cartridge (CHR RAM) whose PRG is the
     /// given program at $8000/$C000 plus the three vectors.
-    pub(crate) fn make_nrom_program(
-        code: &[u8],
-        nmi: u16,
-        reset: u16,
-        irq: u16,
-    ) -> Cartridge {
+    pub(crate) fn make_nrom_program(code: &[u8], nmi: u16, reset: u16, irq: u16) -> Cartridge {
         let mut prg = vec![0xeau8; 0x4000]; // NOP-filled
         prg[..code.len()].copy_from_slice(code);
         prg[0x3ffa..0x3ffc].copy_from_slice(&nmi.to_le_bytes());

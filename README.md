@@ -74,7 +74,6 @@ src/
 7. --auto-gradient
 8. --scanlines
 9. --vignette
-10. --sprite-shadows
 
 ## Input Devies
 

@@ -1,8 +1,4 @@
-use crate::{
-    apu::Apu,
-    input::Controller,
-    ppu::Ppu,
-};
+use crate::{apu::Apu, input::Controller, ppu::Ppu};
 
 pub struct Bus {
     pub ram: [u8; 2048],
@@ -38,31 +34,19 @@ impl Bus {
 
     pub fn read(&mut self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1fff => {
-                self.ram[(addr & 0x07ff) as usize]
-            }
+            0x0000..=0x1fff => self.ram[(addr & 0x07ff) as usize],
 
-            0x2000..=0x3fff => {
-                self.ppu.cpu_read(addr & 7)
-            }
+            0x2000..=0x3fff => self.ppu.cpu_read(addr & 7),
 
-            0x4000..=0x4015 => {
-                self.apu.cpu_read(addr)
-            }
+            0x4000..=0x4015 => self.apu.cpu_read(addr),
 
-            0x4016 => {
-                self.controller.read()
-            }
+            0x4016 => self.controller.read(),
 
-            0x4017 => {
-                self.apu.cpu_read(addr)
-            }
+            0x4017 => self.apu.cpu_read(addr),
 
             0x4018..=0x401f => 0,
 
-            0x4020..=0xffff => {
-                self.ppu.cart.cpu_read(addr)
-            }
+            0x4020..=0xffff => self.ppu.cart.cpu_read(addr),
         }
     }
 
@@ -85,9 +69,7 @@ impl Bus {
                 }
 
                 for i in 0..256 {
-                    self.ppu.oam[
-                        (self.ppu.oam_addr as usize + i) & 255
-                    ] = temp[i];
+                    self.ppu.oam[(self.ppu.oam_addr as usize + i) & 255] = temp[i];
                 }
 
                 self.ppu.catch_up(513 * 3);

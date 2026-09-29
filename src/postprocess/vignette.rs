@@ -27,12 +27,7 @@ impl PostProcessEffect for Vignette {
         self.enabled = enabled;
     }
 
-    fn apply(
-        &self,
-        framebuffer: &mut [u32],
-        width: usize,
-        height: usize,
-    ) {
+    fn apply(&self, framebuffer: &mut [u32], width: usize, height: usize) {
         let cx = width as f32 / 2.0;
         let cy = height as f32 / 2.0;
 
@@ -41,11 +36,9 @@ impl PostProcessEffect for Vignette {
                 let dx = (x as f32 - cx) / cx;
                 let dy = (y as f32 - cy) / cy;
 
-                let distance =
-                    (dx * dx + dy * dy).sqrt();
+                let distance = (dx * dx + dy * dy).sqrt();
 
-                let factor =
-                    1.0 - (distance * self.strength).min(1.0);
+                let factor = 1.0 - (distance * self.strength).min(1.0);
 
                 let index = y * width + x;
                 let pixel = framebuffer[index];
@@ -54,10 +47,9 @@ impl PostProcessEffect for Vignette {
                 let g = ((pixel >> 8) & 0xff) as f32;
                 let b = (pixel & 0xff) as f32;
 
-                framebuffer[index] =
-                    (((r * factor) as u32) << 16) |
-                    (((g * factor) as u32) << 8) |
-                    ((b * factor) as u32);
+                framebuffer[index] = (((r * factor) as u32) << 16)
+                    | (((g * factor) as u32) << 8)
+                    | ((b * factor) as u32);
             }
         }
     }

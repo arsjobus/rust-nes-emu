@@ -24,10 +24,7 @@
 // (e.g. an ambient crowd loop, which never needs an IRQ at all).
 
 const NTSC_RATE_TABLE: [u16; 16] = [
-    428, 380, 340, 320,
-    286, 254, 226, 214,
-    190, 160, 142, 128,
-    106, 84, 72, 54,
+    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
 ];
 
 pub(super) struct Dmc {
@@ -104,8 +101,7 @@ impl Dmc {
                     self.irq_flag = false;
                 }
 
-                self.period =
-                    NTSC_RATE_TABLE[(value & 0x0f) as usize] / 2;
+                self.period = NTSC_RATE_TABLE[(value & 0x0f) as usize] / 2;
             }
 
             1 => {
@@ -114,13 +110,11 @@ impl Dmc {
             }
 
             2 => {
-                self.sample_address =
-                    0xc000 + (value as u16) * 64;
+                self.sample_address = 0xc000 + (value as u16) * 64;
             }
 
             3 => {
-                self.sample_length =
-                    (value as u16) * 16 + 1;
+                self.sample_length = (value as u16) * 16 + 1;
             }
 
             _ => {}
@@ -183,10 +177,7 @@ impl Dmc {
         // have one outstanding request at a time; `Bus::clock_apu`
         // services it every cycle, so in practice it's satisfied
         // well before it's needed again.
-        if self.sample_buffer.is_none()
-            && self.remaining > 0
-            && self.pending_fetch.is_none()
-        {
+        if self.sample_buffer.is_none() && self.remaining > 0 && self.pending_fetch.is_none() {
             self.pending_fetch = Some(self.current_address);
         }
 

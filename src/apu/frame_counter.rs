@@ -1,8 +1,4 @@
-use super::{
-    noise::Noise,
-    pulse::Pulse,
-    triangle::Triangle,
-};
+use super::{noise::Noise, pulse::Pulse, triangle::Triangle};
 
 pub(super) struct FrameCounter {
     cycle: u32,

@@ -34,37 +34,24 @@ pub struct Persistence {
 }
 
 impl Persistence {
-    pub fn new(
-        amount: f32,
-        frames: usize,
-    ) -> Self {
+    pub fn new(amount: f32, frames: usize) -> Self {
         Self {
             enabled: true,
 
-            amount: amount.clamp(
-                0.0,
-                0.95,
-            ),
+            amount: amount.clamp(0.0, 0.95),
 
             frames: frames.max(1),
 
-            history: RefCell::new(
-                Vec::new()
-            ),
+            history: RefCell::new(Vec::new()),
 
-            initialized: RefCell::new(
-                false
-            ),
+            initialized: RefCell::new(false),
         }
     }
 
     pub fn reset(&self) {
-        self.history
-            .borrow_mut()
-            .clear();
+        self.history.borrow_mut().clear();
 
-        *self.initialized
-            .borrow_mut() = false;
+        *self.initialized.borrow_mut() = false;
     }
 }
 
@@ -77,10 +64,7 @@ impl PostProcessEffect for Persistence {
         self.enabled
     }
 
-    fn set_enabled(
-        &mut self,
-        enabled: bool,
-    ) {
+    fn set_enabled(&mut self, enabled: bool) {
         if self.enabled && !enabled {
             self.reset();
         }
@@ -88,18 +72,12 @@ impl PostProcessEffect for Persistence {
         self.enabled = enabled;
     }
 
-    fn apply(
-        &self,
-        framebuffer: &mut [u32],
-        width: usize,
-        height: usize,
-    ) {
+    fn apply(&self, framebuffer: &mut [u32], width: usize, height: usize) {
         if !self.enabled {
             return;
         }
 
-        let count =
-            width * height;
+        let count = width * height;
 
         if framebuffer.len() < count {
             return;
@@ -109,34 +87,25 @@ impl PostProcessEffect for Persistence {
          * Copy the original current frame BEFORE
          * modifying the framebuffer.
          */
-        let current =
-            framebuffer[..count]
-                .to_vec();
+        let current = framebuffer[..count].to_vec();
 
-        let mut history =
-            self.history.borrow_mut();
+        let mut history = self.history.borrow_mut();
 
         /*
          * Reinitialize history if the framebuffer
          * dimensions changed.
          */
         let needs_reset =
-            history.len() != self.frames
-            ||
-            history.iter()
-                .any(|frame| frame.len() != count);
+            history.len() != self.frames || history.iter().any(|frame| frame.len() != count);
 
         if needs_reset {
             history.clear();
 
             for _ in 0..self.frames {
-                history.push(
-                    current.clone()
-                );
+                history.push(current.clone());
             }
 
-            *self.initialized
-                .borrow_mut() = true;
+            *self.initialized.borrow_mut() = true;
 
             return;
         }
@@ -155,22 +124,14 @@ impl PostProcessEffect for Persistence {
          * The weights are normalized afterward.
          */
 
-        let mut weights =
-            Vec::with_capacity(
-                self.frames + 1
-            );
+        let mut weights = Vec::with_capacity(self.frames + 1);
 
-        weights.push(
-            1.0
-        );
+        weights.push(1.0);
 
-        let mut previous_weight =
-            self.amount;
+        let mut previous_weight = self.amount;
 
         for _ in 0..self.frames {
-            weights.push(
-                previous_weight
-            );
+            weights.push(previous_weight);
 
             previous_weight *= 0.55;
         }
@@ -179,81 +140,42 @@ impl PostProcessEffect for Persistence {
          * Normalize all weights so the image doesn't
          * become brighter or darker.
          */
-        let total_weight =
-            weights.iter().sum::<f32>();
+        let total_weight = weights.iter().sum::<f32>();
 
-        for weight in
-            weights.iter_mut()
-        {
-            *weight /=
-                total_weight;
+        for weight in weights.iter_mut() {
+            *weight /= total_weight;
         }
 
         /*
          * Process every pixel.
          */
         for i in 0..count {
-            let current_pixel =
-                current[i];
+            let current_pixel = current[i];
 
-            let mut r =
-                ((current_pixel >> 16)
-                    & 0xff) as f32
-                    * weights[0];
+            let mut r = ((current_pixel >> 16) & 0xff) as f32 * weights[0];
 
-            let mut g =
-                ((current_pixel >> 8)
-                    & 0xff) as f32
-                    * weights[0];
+            let mut g = ((current_pixel >> 8) & 0xff) as f32 * weights[0];
 
-            let mut b =
-                (current_pixel & 0xff)
-                    as f32
-                    * weights[0];
+            let mut b = (current_pixel & 0xff) as f32 * weights[0];
 
             /*
              * Add previous frames.
              */
-            for frame_index in
-                0..self.frames
-            {
-                let pixel =
-                    history[frame_index][i];
+            for frame_index in 0..self.frames {
+                let pixel = history[frame_index][i];
 
-                let weight =
-                    weights[frame_index + 1];
+                let weight = weights[frame_index + 1];
 
-                r +=
-                    ((pixel >> 16)
-                        & 0xff) as f32
-                    * weight;
+                r += ((pixel >> 16) & 0xff) as f32 * weight;
 
-                g +=
-                    ((pixel >> 8)
-                        & 0xff) as f32
-                    * weight;
+                g += ((pixel >> 8) & 0xff) as f32 * weight;
 
-                b +=
-                    (pixel & 0xff)
-                        as f32
-                    * weight;
+                b += (pixel & 0xff) as f32 * weight;
             }
 
-            framebuffer[i] =
-                (((r.clamp(
-                    0.0,
-                    255.0,
-                )) as u32) << 16)
-                |
-                (((g.clamp(
-                    0.0,
-                    255.0,
-                )) as u32) << 8)
-                |
-                ((b.clamp(
-                    0.0,
-                    255.0,
-                )) as u32);
+            framebuffer[i] = (((r.clamp(0.0, 255.0)) as u32) << 16)
+                | (((g.clamp(0.0, 255.0)) as u32) << 8)
+                | ((b.clamp(0.0, 255.0)) as u32);
         }
 
         /*
@@ -261,18 +183,14 @@ impl PostProcessEffect for Persistence {
          *
          * history[2] becomes history[3], etc.
          */
-        for i in
-            (1..self.frames).rev()
-        {
-            history[i] =
-                history[i - 1].clone();
+        for i in (1..self.frames).rev() {
+            history[i] = history[i - 1].clone();
         }
 
         /*
          * Store the ORIGINAL current frame,
          * not the blurred result.
          */
-        history[0] =
-            current;
+        history[0] = current;
     }
 }

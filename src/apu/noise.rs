@@ -55,8 +55,7 @@ impl Noise {
             }
 
             3 => {
-                self.length =
-                    LENGTH_TABLE[(value >> 3) as usize];
+                self.length = LENGTH_TABLE[(value >> 3) as usize];
 
                 self.envelope_start = true;
             }
@@ -74,9 +73,7 @@ impl Noise {
 
             let tap = if self.mode { 6 } else { 1 };
 
-            let feedback =
-                (self.shift & 1)
-                ^ ((self.shift >> tap) & 1);
+            let feedback = (self.shift & 1) ^ ((self.shift >> tap) & 1);
 
             self.shift >>= 1;
             self.shift |= feedback << 14;
@@ -113,10 +110,7 @@ impl Noise {
     }
 
     pub(super) fn output(&self) -> f32 {
-        if !self.enabled
-            || self.length == 0
-            || self.shift & 1 != 0
-        {
+        if !self.enabled || self.length == 0 || self.shift & 1 != 0 {
             return 0.0;
         }
 
@@ -127,7 +121,6 @@ impl Noise {
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "../../tests/apu/noise.rs"]

@@ -1,9 +1,5 @@
 use super::*;
-use crate::{
-    cartridge::test_support::make_cart,
-    input::Controller,
-    ppu::Ppu,
-};
+use crate::{cartridge::test_support::make_cart, input::Controller, ppu::Ppu};
 
 fn setup() -> (Cpu, Bus) {
     let ppu = Ppu::new(make_cart(0, 2, 0, false));

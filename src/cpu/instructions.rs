@@ -1,426 +1,238 @@
-use super::{
-    Cpu,
-    Instruction,
-    Mode,
-    Op,
-};
+use super::{Cpu, Instruction, Mode, Op};
 
 use crate::bus::Bus;
 
 impl Cpu {
-    pub(crate) fn execute(
-        &mut self,
-        bus: &mut Bus,
-        instruction: Instruction,
-        addr: Option<u16>,
-    ) {
+    pub(crate) fn execute(&mut self, bus: &mut Bus, instruction: Instruction, addr: Option<u16>) {
         use Op::*;
 
         match instruction.op {
             Adc => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
                 self.adc(value);
             }
 
             And => {
-                self.a &=
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                self.a &= self.load(bus, instruction.mode, addr);
 
                 self.zn(self.a);
             }
 
             Asl => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                self.set_flag(
-                    super::C,
-                    value & 0x80 != 0,
-                );
+                self.set_flag(super::C, value & 0x80 != 0);
 
-                let result =
-                    value << 1;
+                let result = value << 1;
 
-                self.store(
-                    bus,
-                    instruction.mode,
-                    addr,
-                    result,
-                );
+                self.store(bus, instruction.mode, addr, result);
 
                 self.zn(result);
             }
 
             Bcc => {
                 if !self.flag(super::C) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Bcs => {
                 if self.flag(super::C) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Beq => {
                 if self.flag(super::Z) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Bne => {
                 if !self.flag(super::Z) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Bmi => {
                 if self.flag(super::N) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Bpl => {
                 if !self.flag(super::N) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Bvc => {
                 if !self.flag(super::V) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Bvs => {
                 if self.flag(super::V) {
-                    self.pc =
-                        addr.unwrap();
+                    self.pc = addr.unwrap();
                 }
             }
 
             Bit => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                self.set_flag(
-                    super::Z,
-                    self.a & value == 0,
-                );
+                self.set_flag(super::Z, self.a & value == 0);
 
-                self.set_flag(
-                    super::V,
-                    value & 0x40 != 0,
-                );
+                self.set_flag(super::V, value & 0x40 != 0);
 
-                self.set_flag(
-                    super::N,
-                    value & 0x80 != 0,
-                );
+                self.set_flag(super::N, value & 0x80 != 0);
             }
 
             Brk => {
-                self.pc =
-                    self.pc.wrapping_add(1);
+                self.pc = self.pc.wrapping_add(1);
 
-                self.push(
-                    bus,
-                    (self.pc >> 8) as u8,
-                );
+                self.push(bus, (self.pc >> 8) as u8);
 
-                self.push(
-                    bus,
-                    self.pc as u8,
-                );
+                self.push(bus, self.pc as u8);
 
-                self.push(
-                    bus,
-                    self.status |
-                    super::B |
-                    super::U,
-                );
+                self.push(bus, self.status | super::B | super::U);
 
-                self.set_flag(
-                    super::I,
-                    true,
-                );
+                self.set_flag(super::I, true);
 
-                let lo =
-                    bus.read(0xfffe);
+                let lo = bus.read(0xfffe);
 
-                let hi =
-                    bus.read(0xffff);
+                let hi = bus.read(0xffff);
 
-                self.pc =
-                    u16::from_le_bytes([
-                        lo,
-                        hi,
-                    ]);
+                self.pc = u16::from_le_bytes([lo, hi]);
             }
 
             Clc => {
-                self.set_flag(
-                    super::C,
-                    false,
-                );
+                self.set_flag(super::C, false);
             }
 
             Cld => {
-                self.set_flag(
-                    super::D,
-                    false,
-                );
+                self.set_flag(super::D, false);
             }
 
             Cli => {
-                self.set_flag(
-                    super::I,
-                    false,
-                );
+                self.set_flag(super::I, false);
             }
 
             Clv => {
-                self.set_flag(
-                    super::V,
-                    false,
-                );
+                self.set_flag(super::V, false);
             }
 
             Cmp => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                self.set_flag(
-                    super::C,
-                    self.a >= value,
-                );
+                self.set_flag(super::C, self.a >= value);
 
-                self.zn(
-                    self.a.wrapping_sub(value)
-                );
+                self.zn(self.a.wrapping_sub(value));
             }
 
             Cpx => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                self.set_flag(
-                    super::C,
-                    self.x >= value,
-                );
+                self.set_flag(super::C, self.x >= value);
 
-                self.zn(
-                    self.x.wrapping_sub(value)
-                );
+                self.zn(self.x.wrapping_sub(value));
             }
 
             Cpy => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                self.set_flag(
-                    super::C,
-                    self.y >= value,
-                );
+                self.set_flag(super::C, self.y >= value);
 
-                self.zn(
-                    self.y.wrapping_sub(value)
-                );
+                self.zn(self.y.wrapping_sub(value));
             }
 
             Dec => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    )
-                    .wrapping_sub(1);
+                let value = self.load(bus, instruction.mode, addr).wrapping_sub(1);
 
-                self.store(
-                    bus,
-                    instruction.mode,
-                    addr,
-                    value,
-                );
+                self.store(bus, instruction.mode, addr, value);
 
                 self.zn(value);
             }
 
             Dex => {
-                self.x =
-                    self.x.wrapping_sub(1);
+                self.x = self.x.wrapping_sub(1);
 
                 self.zn(self.x);
             }
 
             Dey => {
-                self.y =
-                    self.y.wrapping_sub(1);
+                self.y = self.y.wrapping_sub(1);
 
                 self.zn(self.y);
             }
 
             Eor => {
-                self.a ^=
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                self.a ^= self.load(bus, instruction.mode, addr);
 
                 self.zn(self.a);
             }
 
             Inc => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    )
-                    .wrapping_add(1);
+                let value = self.load(bus, instruction.mode, addr).wrapping_add(1);
 
-                self.store(
-                    bus,
-                    instruction.mode,
-                    addr,
-                    value,
-                );
+                self.store(bus, instruction.mode, addr, value);
 
                 self.zn(value);
             }
 
             Inx => {
-                self.x =
-                    self.x.wrapping_add(1);
+                self.x = self.x.wrapping_add(1);
 
                 self.zn(self.x);
             }
 
             Iny => {
-                self.y =
-                    self.y.wrapping_add(1);
+                self.y = self.y.wrapping_add(1);
 
                 self.zn(self.y);
             }
 
             Jmp => {
-                self.pc =
-                    addr.unwrap();
+                self.pc = addr.unwrap();
             }
 
             Jsr => {
-                let return_address =
-                    self.pc.wrapping_sub(1);
+                let return_address = self.pc.wrapping_sub(1);
 
-                self.push(
-                    bus,
-                    (return_address >> 8) as u8,
-                );
+                self.push(bus, (return_address >> 8) as u8);
 
-                self.push(
-                    bus,
-                    return_address as u8,
-                );
+                self.push(bus, return_address as u8);
 
-                self.pc =
-                    addr.unwrap();
+                self.pc = addr.unwrap();
             }
 
             Lda => {
-                self.a =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                self.a = self.load(bus, instruction.mode, addr);
 
                 self.zn(self.a);
             }
 
             Ldx => {
-                self.x =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                self.x = self.load(bus, instruction.mode, addr);
 
                 self.zn(self.x);
             }
 
             Ldy => {
-                self.y =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                self.y = self.load(bus, instruction.mode, addr);
 
                 self.zn(self.y);
             }
 
             Lsr => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                self.set_flag(
-                    super::C,
-                    value & 1 != 0,
-                );
+                self.set_flag(super::C, value & 1 != 0);
 
-                let result =
-                    value >> 1;
+                let result = value >> 1;
 
-                self.store(
-                    bus,
-                    instruction.mode,
-                    addr,
-                    result,
-                );
+                self.store(bus, instruction.mode, addr, result);
 
                 self.zn(result);
             }
@@ -428,195 +240,103 @@ impl Cpu {
             Nop => {}
 
             Ora => {
-                self.a |=
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                self.a |= self.load(bus, instruction.mode, addr);
 
                 self.zn(self.a);
             }
 
             Pha => {
-                self.push(
-                    bus,
-                    self.a,
-                );
+                self.push(bus, self.a);
             }
 
             Php => {
-                self.push(
-                    bus,
-                    self.status |
-                    super::B |
-                    super::U,
-                );
+                self.push(bus, self.status | super::B | super::U);
             }
 
             Pla => {
-                self.a =
-                    self.pop(bus);
+                self.a = self.pop(bus);
 
                 self.zn(self.a);
             }
 
             Plp => {
-                self.status =
-                    (self.pop(bus) & !super::B)
-                    | super::U;
+                self.status = (self.pop(bus) & !super::B) | super::U;
             }
 
             Rol => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                let carry =
-                    if self.flag(super::C) {
-                        1
-                    } else {
-                        0
-                    };
+                let carry = if self.flag(super::C) { 1 } else { 0 };
 
-                self.set_flag(
-                    super::C,
-                    value & 0x80 != 0,
-                );
+                self.set_flag(super::C, value & 0x80 != 0);
 
-                let result =
-                    (value << 1) | carry;
+                let result = (value << 1) | carry;
 
-                self.store(
-                    bus,
-                    instruction.mode,
-                    addr,
-                    result,
-                );
+                self.store(bus, instruction.mode, addr, result);
 
                 self.zn(result);
             }
 
             Ror => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
-                let carry =
-                    if self.flag(super::C) {
-                        0x80
-                    } else {
-                        0
-                    };
+                let carry = if self.flag(super::C) { 0x80 } else { 0 };
 
-                self.set_flag(
-                    super::C,
-                    value & 1 != 0,
-                );
+                self.set_flag(super::C, value & 1 != 0);
 
-                let result =
-                    (value >> 1) | carry;
+                let result = (value >> 1) | carry;
 
-                self.store(
-                    bus,
-                    instruction.mode,
-                    addr,
-                    result,
-                );
+                self.store(bus, instruction.mode, addr, result);
 
                 self.zn(result);
             }
 
             Rti => {
-                self.status =
-                    (self.pop(bus) & !super::B)
-                    | super::U;
+                self.status = (self.pop(bus) & !super::B) | super::U;
 
-                let lo =
-                    self.pop(bus);
+                let lo = self.pop(bus);
 
-                let hi =
-                    self.pop(bus);
+                let hi = self.pop(bus);
 
-                self.pc =
-                    u16::from_le_bytes([
-                        lo,
-                        hi,
-                    ]);
+                self.pc = u16::from_le_bytes([lo, hi]);
             }
 
             Rts => {
-                let lo =
-                    self.pop(bus);
+                let lo = self.pop(bus);
 
-                let hi =
-                    self.pop(bus);
+                let hi = self.pop(bus);
 
-                self.pc =
-                    u16::from_le_bytes([
-                        lo,
-                        hi,
-                    ])
-                    .wrapping_add(1);
+                self.pc = u16::from_le_bytes([lo, hi]).wrapping_add(1);
             }
 
             Sbc => {
-                let value =
-                    self.load(
-                        bus,
-                        instruction.mode,
-                        addr,
-                    );
+                let value = self.load(bus, instruction.mode, addr);
 
                 self.sbc(value);
             }
 
             Sec => {
-                self.set_flag(
-                    super::C,
-                    true,
-                );
+                self.set_flag(super::C, true);
             }
 
             Sed => {
-                self.set_flag(
-                    super::D,
-                    true,
-                );
+                self.set_flag(super::D, true);
             }
 
             Sei => {
-                self.set_flag(
-                    super::I,
-                    true,
-                );
+                self.set_flag(super::I, true);
             }
 
             Sta => {
-                bus.write(
-                    addr.unwrap(),
-                    self.a,
-                );
+                bus.write(addr.unwrap(), self.a);
             }
 
             Stx => {
-                bus.write(
-                    addr.unwrap(),
-                    self.x,
-                );
+                bus.write(addr.unwrap(), self.x);
             }
 
             Sty => {
-                bus.write(
-                    addr.unwrap(),
-                    self.y,
-                );
+                bus.write(addr.unwrap(), self.y);
             }
 
             Tax => {
@@ -651,9 +371,7 @@ impl Cpu {
     }
 }
 
-pub fn opcode_info(
-    opcode: u8,
-) -> Instruction {
+pub fn opcode_info(opcode: u8) -> Instruction {
     use Mode::*;
     use Op::*;
 
@@ -842,10 +560,6 @@ pub fn opcode_info(
         0x9a => Instruction::new(Txs, Imp, 2),
         0x98 => Instruction::new(Tya, Imp, 2),
 
-        _ => Instruction::new(
-            Op::Nop,
-            Imp,
-            2,
-        ),
+        _ => Instruction::new(Op::Nop, Imp, 2),
     }
 }

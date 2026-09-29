@@ -9,12 +9,7 @@ pub struct ColorCorrection {
 }
 
 impl ColorCorrection {
-    pub fn new(
-        brightness: f32,
-        contrast: f32,
-        saturation: f32,
-        gamma: f32,
-    ) -> Self {
+    pub fn new(brightness: f32, contrast: f32, saturation: f32, gamma: f32) -> Self {
         Self {
             enabled: true,
             brightness,
@@ -34,45 +29,29 @@ impl PostProcessEffect for ColorCorrection {
         self.enabled
     }
 
-    fn set_enabled(
-        &mut self,
-        enabled: bool,
-    ) {
+    fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
 
-    fn apply(
-        &self,
-        framebuffer: &mut [u32],
-        width: usize,
-        height: usize,
-    ) {
+    fn apply(&self, framebuffer: &mut [u32], width: usize, height: usize) {
         if !self.enabled {
             return;
         }
 
-        let count =
-            width * height;
+        let count = width * height;
 
         if framebuffer.len() < count {
             return;
         }
 
         for i in 0..count {
-            let pixel =
-                framebuffer[i];
+            let pixel = framebuffer[i];
 
-            let mut r =
-                ((pixel >> 16) & 0xff)
-                    as f32 / 255.0;
+            let mut r = ((pixel >> 16) & 0xff) as f32 / 255.0;
 
-            let mut g =
-                ((pixel >> 8) & 0xff)
-                    as f32 / 255.0;
+            let mut g = ((pixel >> 8) & 0xff) as f32 / 255.0;
 
-            let mut b =
-                (pixel & 0xff)
-                    as f32 / 255.0;
+            let mut b = (pixel & 0xff) as f32 / 255.0;
 
             /*
              * Gamma.
@@ -97,28 +76,16 @@ impl PostProcessEffect for ColorCorrection {
              *
              * 1.0 = unchanged.
              */
-            r =
-                (r - 0.5)
-                    * self.contrast
-                    + 0.5;
+            r = (r - 0.5) * self.contrast + 0.5;
 
-            g =
-                (g - 0.5)
-                    * self.contrast
-                    + 0.5;
+            g = (g - 0.5) * self.contrast + 0.5;
 
-            b =
-                (b - 0.5)
-                    * self.contrast
-                    + 0.5;
+            b = (b - 0.5) * self.contrast + 0.5;
 
             /*
              * Calculate luminance.
              */
-            let luminance =
-                0.2126 * r +
-                0.7152 * g +
-                0.0722 * b;
+            let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
             /*
              * Saturation.
@@ -127,29 +94,17 @@ impl PostProcessEffect for ColorCorrection {
              * 1.0 = unchanged.
              * >1.0 = more saturated.
              */
-            r =
-                luminance +
-                (r - luminance)
-                    * self.saturation;
+            r = luminance + (r - luminance) * self.saturation;
 
-            g =
-                luminance +
-                (g - luminance)
-                    * self.saturation;
+            g = luminance + (g - luminance) * self.saturation;
 
-            b =
-                luminance +
-                (b - luminance)
-                    * self.saturation;
+            b = luminance + (b - luminance) * self.saturation;
 
-            r =
-                r.clamp(0.0, 1.0);
+            r = r.clamp(0.0, 1.0);
 
-            g =
-                g.clamp(0.0, 1.0);
+            g = g.clamp(0.0, 1.0);
 
-            b =
-                b.clamp(0.0, 1.0);
+            b = b.clamp(0.0, 1.0);
 
             /*
              * Pack RGB back into 0xRRGGBB.
@@ -159,9 +114,7 @@ impl PostProcessEffect for ColorCorrection {
              * ((value as u32) << 16)
              */
             framebuffer[i] =
-                (((r * 255.0) as u32) << 16)
-                | (((g * 255.0) as u32) << 8)
-                | ((b * 255.0) as u32);
+                (((r * 255.0) as u32) << 16) | (((g * 255.0) as u32) << 8) | ((b * 255.0) as u32);
         }
     }
 }

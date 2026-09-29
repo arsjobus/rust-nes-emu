@@ -1,17 +1,15 @@
-pub mod effect;
-pub mod pipeline;
 pub mod auto_gradient;
 pub mod bloom;
 pub mod color_correction;
 pub mod curvature;
+pub mod effect;
 pub mod lut;
 pub mod ntsc;
 pub mod persistence;
+pub mod pipeline;
 pub mod scanlines;
 pub mod vignette;
 
-pub use effect::PostProcessEffect;
-pub use pipeline::PostProcessPipeline;
 pub use auto_gradient::AutoGradient;
 pub use bloom::Bloom;
 pub use color_correction::ColorCorrection;
@@ -19,5 +17,6 @@ pub use curvature::Curvature;
 pub use lut::{Lut, LutPreset};
 pub use ntsc::Ntsc;
 pub use persistence::Persistence;
+pub use pipeline::PostProcessPipeline;
 pub use scanlines::Scanlines;
 pub use vignette::Vignette;

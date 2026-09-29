@@ -43,17 +43,13 @@ impl Triangle {
             }
 
             2 => {
-                self.period =
-                    (self.period & 0x0700) | value as u16;
+                self.period = (self.period & 0x0700) | value as u16;
             }
 
             3 => {
-                self.period =
-                    (self.period & 0x00ff)
-                    | (((value & 7) as u16) << 8);
+                self.period = (self.period & 0x00ff) | (((value & 7) as u16) << 8);
 
-                self.length =
-                    LENGTH_TABLE[(value >> 3) as usize];
+                self.length = LENGTH_TABLE[(value >> 3) as usize];
 
                 self.linear_reload = true;
             }
@@ -93,10 +89,7 @@ impl Triangle {
     }
 
     pub(super) fn output(&self) -> f32 {
-        if !self.enabled
-            || self.length == 0
-            || self.linear_counter == 0
-        {
+        if !self.enabled || self.length == 0 || self.linear_counter == 0 {
             return 0.0;
         }
 
@@ -120,10 +113,6 @@ impl Triangle {
 
         let x = self.sequence as f32;
 
-        if x < 16.0 {
-            x
-        } else {
-            31.0 - x
-        }
+        if x < 16.0 { x } else { 31.0 - x }
     }
 }

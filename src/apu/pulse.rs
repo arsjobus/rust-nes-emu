@@ -79,17 +79,13 @@ impl Pulse {
             }
 
             2 => {
-                self.period =
-                    (self.period & 0x0700) | value as u16;
+                self.period = (self.period & 0x0700) | value as u16;
             }
 
             3 => {
-                self.period =
-                    (self.period & 0x00ff)
-                    | (((value & 7) as u16) << 8);
+                self.period = (self.period & 0x00ff) | (((value & 7) as u16) << 8);
 
-                self.length =
-                    LENGTH_TABLE[(value >> 3) as usize];
+                self.length = LENGTH_TABLE[(value >> 3) as usize];
 
                 self.sequence = 0;
                 self.envelope_start = true;
@@ -144,11 +140,7 @@ impl Pulse {
                     self.period = self
                         .period
                         .wrapping_sub(change)
-                        .wrapping_sub(if self.channel_one {
-                            1
-                        } else {
-                            0
-                        });
+                        .wrapping_sub(if self.channel_one { 1 } else { 0 });
                 } else {
                     self.period = self.period.wrapping_add(change);
                 }
@@ -166,11 +158,7 @@ impl Pulse {
     }
 
     pub(super) fn output(&self) -> f32 {
-        if !self.enabled
-            || self.length == 0
-            || self.period < 8
-            || self.period > 0x7ff
-        {
+        if !self.enabled || self.length == 0 || self.period < 8 || self.period > 0x7ff {
             return 0.0;
         }
 

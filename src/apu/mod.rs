@@ -21,21 +21,12 @@ pub const PULSE_DUTY: [[f32; 8]; 4] = [
 ];
 
 pub const LENGTH_TABLE: [u8; 32] = [
-    10, 254, 20, 2,
-    40, 4, 80, 6,
-    160, 8, 60, 10,
-    14, 12, 26, 14,
-    12, 16, 24, 18,
-    48, 20, 96, 22,
-    192, 24, 72, 26,
-    16, 28, 32, 30,
+    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
+    192, 24, 72, 26, 16, 28, 32, 30,
 ];
 
 pub const NOISE_PERIODS: [u16; 16] = [
-    4, 8, 16, 32,
-    64, 96, 128, 160,
-    202, 254, 380, 508,
-    762, 1016, 2034, 4068,
+    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
 pub struct Apu {
@@ -175,9 +166,7 @@ impl OutputFilter {
 }
 
 fn env_flag(name: &str) -> bool {
-    std::env::var(name)
-        .map(|v| v == "1")
-        .unwrap_or(false)
+    std::env::var(name).map(|v| v == "1").unwrap_or(false)
 }
 
 impl Apu {
@@ -205,9 +194,9 @@ impl Apu {
             debug_dmc: env_flag("NES_DEBUG_DMC"),
             debug_fetches: 0,
             debug_lines: 0,
-            trace_file: std::env::var("NES_TRACE_FILE").ok().and_then(|p| {
-                std::fs::File::create(p).ok().map(std::io::BufWriter::new)
-            }),
+            trace_file: std::env::var("NES_TRACE_FILE")
+                .ok()
+                .and_then(|p| std::fs::File::create(p).ok().map(std::io::BufWriter::new)),
             wav_path: std::env::var("NES_DUMP_WAV").ok(),
             wav_samples: Vec::new(),
         }
@@ -239,7 +228,9 @@ impl Apu {
     fn write_wav(&mut self) {
         use std::io::Write;
 
-        let Some(path) = self.wav_path.take() else { return };
+        let Some(path) = self.wav_path.take() else {
+            return;
+        };
         let rate = self.sample_rate as u32;
         let data_len = (self.wav_samples.len() * 2) as u32;
 
@@ -275,10 +266,7 @@ impl Apu {
             }
         }
 
-        if self.debug_dmc
-            && matches!(addr, 0x4010..=0x4013 | 0x4015)
-            && self.debug_lines < 300
-        {
+        if self.debug_dmc && matches!(addr, 0x4010..=0x4013 | 0x4015) && self.debug_lines < 300 {
             self.debug_lines += 1;
             eprintln!(
                 "[dmc] cycle {:>10}: write ${:04x} = {:02x}",
@@ -378,8 +366,16 @@ impl Apu {
     }
 
     fn mix(&self) -> f32 {
-        let p1 = if self.mute_pulse1 { 0.0 } else { self.pulse1.output() };
-        let p2 = if self.mute_pulse2 { 0.0 } else { self.pulse2.output() };
+        let p1 = if self.mute_pulse1 {
+            0.0
+        } else {
+            self.pulse1.output()
+        };
+        let p2 = if self.mute_pulse2 {
+            0.0
+        } else {
+            self.pulse2.output()
+        };
 
         let pulse = p1 + p2;
 
@@ -389,14 +385,23 @@ impl Apu {
             95.88 / ((8128.0 / pulse) + 100.0)
         };
 
-        let triangle = if self.mute_triangle { 0.0 } else { self.triangle.output() };
-        let noise = if self.mute_noise { 0.0 } else { self.noise.output() };
-        let dmc = if self.mute_dmc { 0.0 } else { self.dmc.output as f32 };
+        let triangle = if self.mute_triangle {
+            0.0
+        } else {
+            self.triangle.output()
+        };
+        let noise = if self.mute_noise {
+            0.0
+        } else {
+            self.noise.output()
+        };
+        let dmc = if self.mute_dmc {
+            0.0
+        } else {
+            self.dmc.output as f32
+        };
 
-        let tnd =
-            triangle / 8227.0 +
-            noise / 12241.0 +
-            dmc / 22638.0;
+        let tnd = triangle / 8227.0 + noise / 12241.0 + dmc / 22638.0;
 
         let tnd_out = if tnd <= 0.0 {
             0.0

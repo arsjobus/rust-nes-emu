@@ -11,11 +11,7 @@ mod video;
 
 use std::env;
 
-use crate::{
-    cartridge::Cartridge,
-    nes::Nes,
-    ppu::PpuOptions,
-};
+use crate::{cartridge::Cartridge, nes::Nes};
 
 fn print_usage() {
     eprintln!("Usage: runes <rom.nes> [options]");
@@ -30,7 +26,6 @@ fn print_usage() {
     eprintln!("  --auto-gradient         Enable automatic screen gradient");
     eprintln!("  --scanlines             Enable scanlines");
     eprintln!("  --vignette              Enable vignette");
-    eprintln!("  --sprite-shadows        Enable sprite shadows");
     eprintln!();
     eprintln!("Controller:");
     eprintln!("  USB gamepad             Logitech/gamepad controller support");
@@ -48,7 +43,6 @@ fn print_usage() {
     eprintln!("  runes game.nes --bloom --vignette --lut");
     eprintln!("  runes game.nes --ntsc --persistence --bloom --color-correction \\");
     eprintln!("      --lut --curvature --auto-gradient --scanlines --vignette \\");
-    eprintln!("      --sprite-shadows");
 }
 
 fn main() {
@@ -97,21 +91,13 @@ fn main() {
      * ---------------------------------------------------------
      */
 
-    let mut nes = Nes::new(cart);
+    let nes = Nes::new(cart);
 
     /*
      * ---------------------------------------------------------
      * PPU options
      * ---------------------------------------------------------
      */
-
-    let sprite_shadows = args
-        .iter()
-        .any(|arg| arg == "--sprite-shadows");
-
-    nes.bus.ppu.options = PpuOptions {
-        sprite_shadows,
-    };
 
     /*
      * ---------------------------------------------------------
@@ -130,8 +116,5 @@ fn main() {
      * ---------------------------------------------------------
      */
 
-    video::run(
-        nes,
-        &args,
-    );
+    video::run(nes, &args);
 }

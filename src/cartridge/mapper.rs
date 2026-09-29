@@ -1,26 +1,11 @@
 pub trait Mapper {
     fn cpu_read(&self, prg: &[u8], addr: u16) -> u8;
 
-    fn cpu_write(
-        &mut self,
-        prg: &[u8],
-        addr: u16,
-        value: u8,
-    );
+    fn cpu_write(&mut self, prg: &[u8], addr: u16, value: u8);
 
-    fn chr_read(
-        &self,
-        chr: &[u8],
-        addr: u16,
-    ) -> u8;
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8;
 
-    fn chr_write(
-        &mut self,
-        chr: &mut [u8],
-        addr: u16,
-        value: u8,
-        chr_ram: bool,
-    );
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool);
 
     /// Mappers that can switch mirroring at runtime (e.g. MMC2)
     /// return their current setting here; the cartridge checks
@@ -51,30 +36,15 @@ impl Mapper for NromMapper {
         prg[index]
     }
 
-    fn cpu_write(
-        &mut self,
-        _prg: &[u8],
-        _addr: u16,
-        _value: u8,
-    ) {
+    fn cpu_write(&mut self, _prg: &[u8], _addr: u16, _value: u8) {
         // NROM has no mapper registers.
     }
 
-    fn chr_read(
-        &self,
-        chr: &[u8],
-        addr: u16,
-    ) -> u8 {
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
         chr[(addr as usize) % chr.len()]
     }
 
-    fn chr_write(
-        &mut self,
-        chr: &mut [u8],
-        addr: u16,
-        value: u8,
-        chr_ram: bool,
-    ) {
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
         if !chr_ram {
             return;
         }
@@ -84,7 +54,6 @@ impl Mapper for NromMapper {
         chr[index] = value;
     }
 }
-
 
 // ============================================================
 // Mapper 2 - UxROM
@@ -107,9 +76,7 @@ pub struct UxromMapper {
 
 impl UxromMapper {
     pub fn new() -> Self {
-        Self {
-            bank_select: 0,
-        }
+        Self { bank_select: 0 }
     }
 }
 
@@ -118,10 +85,7 @@ impl Mapper for UxromMapper {
         let bank_count = prg.len() / 0x4000;
 
         // UxROM cartridges require at least two 16 KiB PRG banks.
-        assert!(
-            bank_count >= 2,
-            "UxROM requires at least 32 KiB of PRG ROM"
-        );
+        assert!(bank_count >= 2, "UxROM requires at least 32 KiB of PRG ROM");
 
         let index = if addr < 0xc000 {
             // $8000-$BFFF:
@@ -140,12 +104,7 @@ impl Mapper for UxromMapper {
         prg[index]
     }
 
-    fn cpu_write(
-        &mut self,
-        _prg: &[u8],
-        addr: u16,
-        value: u8,
-    ) {
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
         if addr >= 0x8000 {
             // UxROM uses the written value to select
             // the PRG bank mapped at $8000-$BFFF.
@@ -157,21 +116,11 @@ impl Mapper for UxromMapper {
         }
     }
 
-    fn chr_read(
-        &self,
-        chr: &[u8],
-        addr: u16,
-    ) -> u8 {
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
         chr[(addr as usize) % chr.len()]
     }
 
-    fn chr_write(
-        &mut self,
-        chr: &mut [u8],
-        addr: u16,
-        value: u8,
-        chr_ram: bool,
-    ) {
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
         if !chr_ram {
             return;
         }
@@ -181,7 +130,6 @@ impl Mapper for UxromMapper {
         chr[index] = value;
     }
 }
-
 
 // ============================================================
 // Mapper 66 - GxROM
@@ -193,9 +141,7 @@ pub struct GxromMapper {
 
 impl GxromMapper {
     pub fn new() -> Self {
-        Self {
-            register: 0,
-        }
+        Self { register: 0 }
     }
 }
 
@@ -203,68 +149,39 @@ impl Mapper for GxromMapper {
     fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
         let banks = (prg.len() / 0x8000).max(1);
 
-        let bank =
-            ((self.register >> 4) & 3) as usize % banks;
+        let bank = ((self.register >> 4) & 3) as usize % banks;
 
-        let index =
-            bank * 0x8000 +
-            (addr as usize - 0x8000);
+        let index = bank * 0x8000 + (addr as usize - 0x8000);
 
         // GxROM boards ship with >= 32 KiB of PRG, but a malformed
         // or trimmed dump must not turn into an out-of-bounds panic.
         prg[index % prg.len()]
     }
 
-    fn cpu_write(
-        &mut self,
-        _prg: &[u8],
-        _addr: u16,
-        value: u8,
-    ) {
+    fn cpu_write(&mut self, _prg: &[u8], _addr: u16, value: u8) {
         self.register = value;
     }
 
-    fn chr_read(
-        &self,
-        chr: &[u8],
-        addr: u16,
-    ) -> u8 {
-        let banks =
-            (chr.len() / 0x2000).max(1);
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
+        let banks = (chr.len() / 0x2000).max(1);
 
-        let bank =
-            (self.register & 3) as usize % banks;
+        let bank = (self.register & 3) as usize % banks;
 
-        chr[
-            bank * 0x2000 +
-            addr as usize
-        ]
+        chr[bank * 0x2000 + addr as usize]
     }
 
-    fn chr_write(
-        &mut self,
-        chr: &mut [u8],
-        addr: u16,
-        value: u8,
-        chr_ram: bool,
-    ) {
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
         if !chr_ram {
             return;
         }
 
-        let banks =
-            (chr.len() / 0x2000).max(1);
+        let banks = (chr.len() / 0x2000).max(1);
 
-        let bank =
-            (self.register & 3) as usize % banks;
+        let bank = (self.register & 3) as usize % banks;
 
-        chr[
-            bank * 0x2000 +
-            addr as usize
-        ] = value;
+        chr[bank * 0x2000 + addr as usize] = value;
     }
 }
-
 
 // ============================================================
 // Mapper 9 - MMC2 (PxROM)
@@ -351,9 +268,7 @@ impl Mapper for Mmc2Mapper {
         let bank_count = (prg.len() / 0x2000).max(1);
 
         let bank = match addr {
-            0x8000..=0x9fff => {
-                (self.prg_bank as usize) % bank_count
-            }
+            0x8000..=0x9fff => (self.prg_bank as usize) % bank_count,
             0xa000..=0xbfff => bank_count.saturating_sub(3),
             0xc000..=0xdfff => bank_count.saturating_sub(2),
             _ => bank_count.saturating_sub(1),
@@ -364,12 +279,7 @@ impl Mapper for Mmc2Mapper {
         prg[bank * 0x2000 + offset]
     }
 
-    fn cpu_write(
-        &mut self,
-        _prg: &[u8],
-        addr: u16,
-        value: u8,
-    ) {
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
         match addr {
             0xa000..=0xafff => {
                 // PRG select is 4 bits (xxxxPPPP) on MMC2.
@@ -394,11 +304,7 @@ impl Mapper for Mmc2Mapper {
         }
     }
 
-    fn chr_read(
-        &self,
-        chr: &[u8],
-        addr: u16,
-    ) -> u8 {
+    fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
         let bank_count = (chr.len() / 0x1000).max(1);
 
         let (bank, half_base) = if addr < 0x1000 {
@@ -438,13 +344,7 @@ impl Mapper for Mmc2Mapper {
         data
     }
 
-    fn chr_write(
-        &mut self,
-        chr: &mut [u8],
-        addr: u16,
-        value: u8,
-        chr_ram: bool,
-    ) {
+    fn chr_write(&mut self, chr: &mut [u8], addr: u16, value: u8, chr_ram: bool) {
         // Boards using mapper 9 always shipped with CHR ROM, but
         // guard against CHR RAM variants just in case.
         if !chr_ram {
