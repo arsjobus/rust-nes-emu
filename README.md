@@ -1,5 +1,7 @@
 ## Rust-NES-Emu
 
+New here? Start with the [Getting Started guide](docs/GETTING_STARTED.md) for build instructions, controls, and troubleshooting.
+
 ## Compatibility (Mapper)
 
 Games which have mappers as:
