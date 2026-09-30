@@ -5,6 +5,9 @@ pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,
     pub controller: Controller,
+
+    /// CPU cycles still owed for an OAM DMA transfer.
+    dma_stall: u32,
 }
 
 impl Bus {
@@ -14,7 +17,13 @@ impl Bus {
             ppu,
             apu: Apu::new(),
             controller,
+            dma_stall: 0,
         }
+    }
+
+    /// Takes (and clears) the CPU stall cycles accumulated by OAM DMA.
+    pub fn take_dma_stall(&mut self) -> u32 {
+        std::mem::take(&mut self.dma_stall)
     }
 
     pub fn clock_apu(&mut self, cycles: u32) {
@@ -80,7 +89,7 @@ impl Bus {
                     self.ppu.oam[(self.ppu.oam_addr as usize + i) & 255] = temp[i];
                 }
 
-                self.ppu.catch_up(513 * 3);
+                self.dma_stall += 513;
             }
 
             0x4000..=0x4015 => {

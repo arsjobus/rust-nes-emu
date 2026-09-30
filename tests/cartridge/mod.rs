@@ -252,3 +252,86 @@ fn mmc1_mirroring_and_prg_ram_enable_follow_registers() {
     mmc1_write_register(&mut cart, 0xe000, 0);
     assert_eq!(cart.cpu_read(0x6000), 0x5a);
 }
+
+/// MMC3 boards power on with PRG RAM accessible; games (and test
+/// ROMs) use $6000-$7FFF before ever writing $A001.
+#[test]
+fn mmc3_prg_ram_is_usable_at_power_on() {
+    let mut cart = make_cart(4, 8, 8, false);
+
+    cart.cpu_write(0x6000, 0x5a);
+    assert_eq!(cart.cpu_read(0x6000), 0x5a);
+
+    // ...and $A001 can still disable / write-protect it.
+    cart.cpu_write(0xa001, 0xc0); // enabled, write-protected
+    cart.cpu_write(0x6000, 0x11);
+    assert_eq!(cart.cpu_read(0x6000), 0x5a);
+
+    cart.cpu_write(0xa001, 0x00); // disabled
+    assert_eq!(cart.cpu_read(0x6000), 0);
+}
+
+/// Writes to the unmapped $4020-$5FFF window must not reach mappers
+/// that decode only $8000 and above.
+#[test]
+fn unmapped_writes_do_not_clock_mapper_registers() {
+    // MMC1: five stray writes of 1 must not load the shift register.
+    let mut mmc1 = make_cart(1, 8, 0, false);
+    let before = mmc1.cpu_read(0x8000);
+    for _ in 0..5 {
+        mmc1.cpu_write(0x4020, 0x01);
+        mmc1.cpu_write(0x5000, 0x01);
+    }
+    // Would have selected PRG bank 0b11111 = 15 -> bank 7 after modulo.
+    assert_eq!(mmc1.cpu_read(0x8000), before);
+
+    // GxROM / AxROM: a stray write must not switch banks.
+    let mut gxrom = make_cart(66, 8, 4, false);
+    let before = gxrom.cpu_read(0x8000);
+    gxrom.cpu_write(0x5fff, 0x33);
+    assert_eq!(gxrom.cpu_read(0x8000), before);
+
+    let mut axrom = make_cart(7, 8, 1, false);
+    axrom.cpu_write(0x5fff, 0x13);
+    assert_eq!(axrom.cpu_read(0x8000), 0);
+    assert_eq!(axrom.mirroring, super::Mirroring::OneScreenLower);
+}
+
+fn ines_image(mapper_low: u8, flags7: u8, tail: [u8; 4]) -> std::path::PathBuf {
+    let mut data = vec![0u8; 16];
+    data[0..4].copy_from_slice(b"NES\x1a");
+    data[4] = 2;
+    data[5] = 1;
+    data[6] = mapper_low << 4;
+    data[7] = flags7;
+    data[12..16].copy_from_slice(&tail);
+    data.extend(std::iter::repeat(0u8).take(2 * 0x4000 + 0x2000));
+
+    let path = std::env::temp_dir().join(format!(
+        "runes_header_{}_{}_{}.nes",
+        std::process::id(),
+        mapper_low,
+        flags7
+    ));
+    std::fs::write(&path, &data).unwrap();
+    path
+}
+
+/// Old dumps carry junk ("DiskDude!") in header bytes 7-15. That
+/// used to turn mapper 1 into a bogus high-nibble mapper.
+#[test]
+fn dirty_ines_header_ignores_high_mapper_nibble() {
+    let path = ines_image(1, 0x44, *b"Dude");
+    let cart = super::Cartridge::load(path.to_str().unwrap());
+    let _ = std::fs::remove_file(&path);
+    assert!(matches!(
+        cart.expect("loads as mapper 1").mapper_kind,
+        super::MapperKind::Mmc1
+    ));
+
+    // A clean header still honours flags 7.
+    let path = ines_image(1, 0x40, [0; 4]);
+    let cart = super::Cartridge::load(path.to_str().unwrap());
+    let _ = std::fs::remove_file(&path);
+    assert!(cart.is_err(), "mapper 65 is unsupported");
+}

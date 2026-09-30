@@ -108,6 +108,44 @@ pub enum Op {
     Txa,
     Txs,
     Tya,
+
+    // Unofficial ("illegal") opcodes that commercial games and
+    // test ROMs rely on.
+    Lax,
+    Sax,
+    Dcp,
+    Isb,
+    Slo,
+    Rla,
+    Sre,
+    Rra,
+    Anc,
+    Alr,
+    Arr,
+    Axs,
+    Shx,
+    Shy,
+}
+
+impl Op {
+    /// True for read-type instructions that take an extra cycle when
+    /// an indexed effective address crosses a page boundary.
+    pub(crate) fn has_page_cross_penalty(self) -> bool {
+        matches!(
+            self,
+            Op::Adc
+                | Op::And
+                | Op::Cmp
+                | Op::Eor
+                | Op::Lda
+                | Op::Ldx
+                | Op::Ldy
+                | Op::Ora
+                | Op::Sbc
+                | Op::Nop
+                | Op::Lax
+        )
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -132,6 +170,13 @@ pub struct Cpu {
     pub pc: u16,
 
     pub status: u8,
+
+    /// Extra cycles accrued by the instruction currently executing
+    /// (taken branches, page crossings).
+    pub(crate) extra_cycles: u32,
+    /// Set by the addressing-mode code when an indexed access
+    /// crossed a page boundary.
+    pub(crate) page_crossed: bool,
 }
 
 impl Cpu {
@@ -145,6 +190,9 @@ impl Cpu {
             pc: 0,
 
             status: 0x24,
+
+            extra_cycles: 0,
+            page_crossed: false,
         }
     }
 
@@ -164,6 +212,9 @@ impl Cpu {
     }
 
     pub fn step(&mut self, bus: &mut Bus) -> u32 {
+        self.extra_cycles = 0;
+        self.page_crossed = false;
+
         let opcode = self.fetch(bus);
 
         let instruction = opcode_info(opcode);
@@ -174,12 +225,22 @@ impl Cpu {
             self.operand(bus, instruction.mode)
         };
 
+        // Read-type instructions pay one extra cycle when an
+        // indexed address crosses a page. Stores and
+        // read-modify-write instructions always take the long
+        // path and already include it in their base cycle count.
+        if self.page_crossed && instruction.op.has_page_cross_penalty() {
+            self.extra_cycles += 1;
+        }
+
         self.execute(bus, instruction, addr);
 
-        instruction.cycles
+        instruction.cycles + self.extra_cycles
     }
 
-    pub fn nmi(&mut self, bus: &mut Bus) {
+    /// Serviced NMI. Returns the 7 cycles the sequence takes so the
+    /// caller can keep the PPU/APU in step.
+    pub fn nmi(&mut self, bus: &mut Bus) -> u32 {
         self.push(bus, (self.pc >> 8) as u8);
 
         self.push(bus, self.pc as u8);
@@ -193,6 +254,8 @@ impl Cpu {
         let hi = bus.read(0xfffb);
 
         self.pc = u16::from_le_bytes([lo, hi]);
+
+        7
     }
 
     /*

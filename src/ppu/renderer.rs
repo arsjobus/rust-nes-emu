@@ -68,12 +68,24 @@ pub const NES_PALETTE: [(u8, u8, u8); 64] = [
 ];
 
 impl Ppu {
+    /// Looks up a system palette entry, honouring the grayscale bit
+    /// of $2001.
+    fn system_color(&self, index: u8) -> (u8, u8, u8) {
+        let mut index = index & 0x3f;
+
+        if self.mask & 0x01 != 0 {
+            index &= 0x30;
+        }
+
+        NES_PALETTE[index as usize]
+    }
+
     pub(crate) fn render_scanline(&mut self, y: usize) {
         let background_enabled = self.mask & 0x08 != 0;
 
         let sprites_enabled = self.mask & 0x10 != 0;
 
-        let backdrop = NES_PALETTE[(self.palette[0] & 0x3f) as usize];
+        let backdrop = self.system_color(self.palette[0]);
 
         if !background_enabled {
             for x in 0..256 {
@@ -145,7 +157,13 @@ impl Ppu {
 
                     let bit1 = (p1 >> (7 - bit)) & 1;
 
-                    let color_index = (bit1 << 1) | bit0;
+                    let mut color_index = (bit1 << 1) | bit0;
+
+                    // $2001 bit 1 clear hides the background in the
+                    // leftmost 8 pixels.
+                    if px < 8 && self.mask & 0x02 == 0 {
+                        color_index = 0;
+                    }
 
                     let px = px as usize;
 
@@ -156,9 +174,9 @@ impl Ppu {
                     } else {
                         self.bg_opaque[px] = 1;
 
-                        let color = NES_PALETTE[(self
-                            .internal_read(0x3f00 + palette as u16 * 4 + color_index as u16)
-                            & 0x3f) as usize];
+                        let color = self.system_color(
+                            self.internal_read(0x3f00 + palette as u16 * 4 + color_index as u16),
+                        );
 
                         self.framebuffer[y * WIDTH + px] = rgb(color.0, color.1, color.2);
                     }
@@ -178,7 +196,9 @@ impl Ppu {
             self.render_sprites(y);
         }
 
-        if background_enabled {
+        // The vertical scroll increment happens whenever rendering
+        // is enabled, whether by the background or by sprites alone.
+        if background_enabled || sprites_enabled {
             self.v = Self::inc_vertical(self.v);
         }
     }
@@ -328,6 +348,12 @@ impl Ppu {
 
                 let screen_x = screen_x as usize;
 
+                // $2001 bit 2 clear hides sprites in the leftmost 8
+                // pixels (and suppresses sprite 0 hits there).
+                if screen_x < 8 && self.mask & 0x04 == 0 {
+                    continue;
+                }
+
                 if index == 0 && self.bg_opaque[screen_x] != 0 && screen_x != 255 {
                     if self.sprite0_col.map_or(true, |v| screen_x < v) {
                         self.sprite0_col = Some(screen_x);
@@ -340,9 +366,9 @@ impl Ppu {
                     continue;
                 }
 
-                let color = NES_PALETTE[(self
-                    .internal_read(0x3f10 + palette as u16 * 4 + color_index as u16)
-                    & 0x3f) as usize];
+                let color = self.system_color(
+                    self.internal_read(0x3f10 + palette as u16 * 4 + color_index as u16),
+                );
 
                 self.framebuffer[y * WIDTH + screen_x] = rgb(color.0, color.1, color.2);
             }

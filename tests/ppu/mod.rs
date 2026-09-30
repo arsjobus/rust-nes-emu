@@ -108,3 +108,24 @@ fn mmc3_irq_clocks_near_end_of_visible_scanline() {
     ppu.catch_up(341 - 261 + 261);
     assert!(ppu.cart.irq_pending()); // next scanline edge decrements 1 -> 0
 }
+
+/// The pre-render line clocks the MMC3 counter too. Starting the
+/// frame with a reload request and latch 1, the IRQ must assert after
+/// the second clock (pre-render, then scanline 0).
+#[test]
+fn mmc3_irq_is_clocked_on_the_pre_render_line() {
+    let mut ppu = Ppu::new(make_cart(4, 8, 8, false));
+    ppu.cart.cpu_write(0xc000, 1); // latch
+    ppu.cart.cpu_write(0xc001, 0); // request reload
+    ppu.cart.cpu_write(0xe001, 0); // enable
+    ppu.mask = 0x18;
+    ppu.scanline = 261;
+    ppu.dot = 0;
+
+    ppu.catch_up(341); // whole pre-render line: reload to 1
+    assert!(!ppu.cart.irq_pending());
+    assert_eq!(ppu.scanline, 0);
+
+    ppu.catch_up(341); // scanline 0: 1 -> 0
+    assert!(ppu.cart.irq_pending());
+}

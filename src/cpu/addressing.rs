@@ -20,9 +20,19 @@ impl Cpu {
 
             Mode::Abs => Some(self.word(bus)),
 
-            Mode::Absx => Some(self.word(bus).wrapping_add(self.x as u16)),
+            Mode::Absx => {
+                let base = self.word(bus);
+                let addr = base.wrapping_add(self.x as u16);
+                self.page_crossed = (base ^ addr) & 0xff00 != 0;
+                Some(addr)
+            }
 
-            Mode::Absy => Some(self.word(bus).wrapping_add(self.y as u16)),
+            Mode::Absy => {
+                let base = self.word(bus);
+                let addr = base.wrapping_add(self.y as u16);
+                self.page_crossed = (base ^ addr) & 0xff00 != 0;
+                Some(addr)
+            }
 
             Mode::Ind => {
                 let pointer = self.word(bus);
@@ -57,7 +67,10 @@ impl Cpu {
 
                 let hi = bus.read(zp.wrapping_add(1) as u16);
 
-                Some(u16::from_le_bytes([lo, hi]).wrapping_add(self.y as u16))
+                let base = u16::from_le_bytes([lo, hi]);
+                let addr = base.wrapping_add(self.y as u16);
+                self.page_crossed = (base ^ addr) & 0xff00 != 0;
+                Some(addr)
             }
 
             Mode::Rel => {

@@ -32,51 +32,35 @@ impl Cpu {
             }
 
             Bcc => {
-                if !self.flag(super::C) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(!self.flag(super::C), addr);
             }
 
             Bcs => {
-                if self.flag(super::C) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(self.flag(super::C), addr);
             }
 
             Beq => {
-                if self.flag(super::Z) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(self.flag(super::Z), addr);
             }
 
             Bne => {
-                if !self.flag(super::Z) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(!self.flag(super::Z), addr);
             }
 
             Bmi => {
-                if self.flag(super::N) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(self.flag(super::N), addr);
             }
 
             Bpl => {
-                if !self.flag(super::N) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(!self.flag(super::N), addr);
             }
 
             Bvc => {
-                if !self.flag(super::V) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(!self.flag(super::V), addr);
             }
 
             Bvs => {
-                if self.flag(super::V) {
-                    self.pc = addr.unwrap();
-                }
+                self.branch(self.flag(super::V), addr);
             }
 
             Bit => {
@@ -367,6 +351,181 @@ impl Cpu {
                 self.a = self.y;
                 self.zn(self.a);
             }
+
+            Lax => {
+                let value = self.load(bus, instruction.mode, addr);
+
+                self.a = value;
+                self.x = value;
+
+                self.zn(value);
+            }
+
+            Sax => {
+                bus.write(addr.unwrap(), self.a & self.x);
+            }
+
+            Dcp => {
+                let value = self.load(bus, instruction.mode, addr).wrapping_sub(1);
+
+                self.store(bus, instruction.mode, addr, value);
+
+                self.set_flag(super::C, self.a >= value);
+
+                self.zn(self.a.wrapping_sub(value));
+            }
+
+            Isb => {
+                let value = self.load(bus, instruction.mode, addr).wrapping_add(1);
+
+                self.store(bus, instruction.mode, addr, value);
+
+                self.sbc(value);
+            }
+
+            Slo => {
+                let value = self.load(bus, instruction.mode, addr);
+
+                self.set_flag(super::C, value & 0x80 != 0);
+
+                let result = value << 1;
+
+                self.store(bus, instruction.mode, addr, result);
+
+                self.a |= result;
+
+                self.zn(self.a);
+            }
+
+            Rla => {
+                let value = self.load(bus, instruction.mode, addr);
+
+                let carry = if self.flag(super::C) { 1 } else { 0 };
+
+                self.set_flag(super::C, value & 0x80 != 0);
+
+                let result = (value << 1) | carry;
+
+                self.store(bus, instruction.mode, addr, result);
+
+                self.a &= result;
+
+                self.zn(self.a);
+            }
+
+            Sre => {
+                let value = self.load(bus, instruction.mode, addr);
+
+                self.set_flag(super::C, value & 1 != 0);
+
+                let result = value >> 1;
+
+                self.store(bus, instruction.mode, addr, result);
+
+                self.a ^= result;
+
+                self.zn(self.a);
+            }
+
+            Rra => {
+                let value = self.load(bus, instruction.mode, addr);
+
+                let carry = if self.flag(super::C) { 0x80 } else { 0 };
+
+                self.set_flag(super::C, value & 1 != 0);
+
+                let result = (value >> 1) | carry;
+
+                self.store(bus, instruction.mode, addr, result);
+
+                self.adc(result);
+            }
+
+            Anc => {
+                self.a &= self.load(bus, instruction.mode, addr);
+
+                self.zn(self.a);
+
+                self.set_flag(super::C, self.a & 0x80 != 0);
+            }
+
+            Alr => {
+                self.a &= self.load(bus, instruction.mode, addr);
+
+                self.set_flag(super::C, self.a & 1 != 0);
+
+                self.a >>= 1;
+
+                self.zn(self.a);
+            }
+
+            Arr => {
+                self.a &= self.load(bus, instruction.mode, addr);
+
+                let carry = if self.flag(super::C) { 0x80 } else { 0 };
+
+                self.a = (self.a >> 1) | carry;
+
+                self.zn(self.a);
+
+                self.set_flag(super::C, self.a & 0x40 != 0);
+
+                self.set_flag(super::V, ((self.a >> 6) ^ (self.a >> 5)) & 1 != 0);
+            }
+
+            Shx => {
+                self.store_high_and(bus, addr.unwrap(), self.x);
+            }
+
+            Shy => {
+                self.store_high_and(bus, addr.unwrap(), self.y);
+            }
+
+            Axs => {
+                let value = self.load(bus, instruction.mode, addr);
+
+                let base = self.a & self.x;
+
+                self.set_flag(super::C, base >= value);
+
+                self.x = base.wrapping_sub(value);
+
+                self.zn(self.x);
+            }
+        }
+    }
+
+    /// SHX/SHY: store `reg & (high byte of the base address + 1)`.
+    /// When the indexed address crosses a page, the high byte of the
+    /// target is replaced by the stored value.
+    fn store_high_and(&mut self, bus: &mut Bus, addr: u16, reg: u8) {
+        let base_high = ((addr >> 8) as u8).wrapping_sub(self.page_crossed as u8);
+
+        let value = reg & base_high.wrapping_add(1);
+
+        let target = if self.page_crossed {
+            ((value as u16) << 8) | (addr & 0xff)
+        } else {
+            addr
+        };
+
+        bus.write(target, value);
+    }
+
+    /// Conditional relative branch. A taken branch costs one extra
+    /// cycle, and one more if it lands on a different page from the
+    /// instruction that follows the branch.
+    fn branch(&mut self, taken: bool, addr: Option<u16>) {
+        if taken {
+            let target = addr.unwrap();
+
+            self.extra_cycles += 1;
+
+            if (self.pc ^ target) & 0xff00 != 0 {
+                self.extra_cycles += 1;
+            }
+
+            self.pc = target;
         }
     }
 }
@@ -560,6 +719,97 @@ pub fn opcode_info(opcode: u8) -> Instruction {
         0x9a => Instruction::new(Txs, Imp, 2),
         0x98 => Instruction::new(Tya, Imp, 2),
 
+        // ---- Unofficial opcodes -------------------------------
+
+        // Multi-byte / multi-cycle NOPs. They must consume their
+        // operand bytes or the instruction stream desynchronises.
+        0x1a | 0x3a | 0x5a | 0x7a | 0xda | 0xfa => Instruction::new(Nop, Imp, 2),
+        0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 => Instruction::new(Nop, Imm, 2),
+        0x04 | 0x44 | 0x64 => Instruction::new(Nop, Zp, 3),
+        0x14 | 0x34 | 0x54 | 0x74 | 0xd4 | 0xf4 => Instruction::new(Nop, Zpx, 4),
+        0x0c => Instruction::new(Nop, Abs, 4),
+        0x1c | 0x3c | 0x5c | 0x7c | 0xdc | 0xfc => Instruction::new(Nop, Absx, 4),
+
+        0xeb => Instruction::new(Sbc, Imm, 2),
+
+        0xa7 => Instruction::new(Lax, Zp, 3),
+        0xb7 => Instruction::new(Lax, Zpy, 4),
+        0xaf => Instruction::new(Lax, Abs, 4),
+        0xbf => Instruction::new(Lax, Absy, 4),
+        0xa3 => Instruction::new(Lax, Indx, 6),
+        0xb3 => Instruction::new(Lax, Indy, 5),
+
+        0x87 => Instruction::new(Sax, Zp, 3),
+        0x97 => Instruction::new(Sax, Zpy, 4),
+        0x8f => Instruction::new(Sax, Abs, 4),
+        0x83 => Instruction::new(Sax, Indx, 6),
+
+        0xc7 => Instruction::new(Dcp, Zp, 5),
+        0xd7 => Instruction::new(Dcp, Zpx, 6),
+        0xcf => Instruction::new(Dcp, Abs, 6),
+        0xdf => Instruction::new(Dcp, Absx, 7),
+        0xdb => Instruction::new(Dcp, Absy, 7),
+        0xc3 => Instruction::new(Dcp, Indx, 8),
+        0xd3 => Instruction::new(Dcp, Indy, 8),
+
+        0xe7 => Instruction::new(Isb, Zp, 5),
+        0xf7 => Instruction::new(Isb, Zpx, 6),
+        0xef => Instruction::new(Isb, Abs, 6),
+        0xff => Instruction::new(Isb, Absx, 7),
+        0xfb => Instruction::new(Isb, Absy, 7),
+        0xe3 => Instruction::new(Isb, Indx, 8),
+        0xf3 => Instruction::new(Isb, Indy, 8),
+
+        0x07 => Instruction::new(Slo, Zp, 5),
+        0x17 => Instruction::new(Slo, Zpx, 6),
+        0x0f => Instruction::new(Slo, Abs, 6),
+        0x1f => Instruction::new(Slo, Absx, 7),
+        0x1b => Instruction::new(Slo, Absy, 7),
+        0x03 => Instruction::new(Slo, Indx, 8),
+        0x13 => Instruction::new(Slo, Indy, 8),
+
+        0x27 => Instruction::new(Rla, Zp, 5),
+        0x37 => Instruction::new(Rla, Zpx, 6),
+        0x2f => Instruction::new(Rla, Abs, 6),
+        0x3f => Instruction::new(Rla, Absx, 7),
+        0x3b => Instruction::new(Rla, Absy, 7),
+        0x23 => Instruction::new(Rla, Indx, 8),
+        0x33 => Instruction::new(Rla, Indy, 8),
+
+        0x47 => Instruction::new(Sre, Zp, 5),
+        0x57 => Instruction::new(Sre, Zpx, 6),
+        0x4f => Instruction::new(Sre, Abs, 6),
+        0x5f => Instruction::new(Sre, Absx, 7),
+        0x5b => Instruction::new(Sre, Absy, 7),
+        0x43 => Instruction::new(Sre, Indx, 8),
+        0x53 => Instruction::new(Sre, Indy, 8),
+
+        0x67 => Instruction::new(Rra, Zp, 5),
+        0x77 => Instruction::new(Rra, Zpx, 6),
+        0x6f => Instruction::new(Rra, Abs, 6),
+        0x7f => Instruction::new(Rra, Absx, 7),
+        0x7b => Instruction::new(Rra, Absy, 7),
+        0x63 => Instruction::new(Rra, Indx, 8),
+        0x73 => Instruction::new(Rra, Indy, 8),
+
+        0x0b | 0x2b => Instruction::new(Anc, Imm, 2),
+        0x4b => Instruction::new(Alr, Imm, 2),
+        0x6b => Instruction::new(Arr, Imm, 2),
+        0xcb => Instruction::new(Axs, Imm, 2),
+
+        // Unstable opcodes. LXA/SHX/SHY are implemented (with the
+        // common "magic" behaviour); XAA, AHX, TAS and LAS just
+        // consume the right number of operand bytes, since no
+        // licensed game depends on their results.
+        0x8b => Instruction::new(Nop, Imm, 2),
+        0xab => Instruction::new(Lax, Imm, 2),
+        0x93 => Instruction::new(Nop, Indy, 6),
+        0x9f | 0x9b => Instruction::new(Nop, Absy, 5),
+        0x9e => Instruction::new(Shx, Absy, 5),
+        0x9c => Instruction::new(Shy, Absx, 5),
+        0xbb => Instruction::new(Nop, Absy, 4),
+
+        // JAM/KIL and anything else: single-byte NOP.
         _ => Instruction::new(Op::Nop, Imp, 2),
     }
 }

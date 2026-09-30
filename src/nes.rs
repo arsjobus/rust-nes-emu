@@ -32,23 +32,37 @@ impl Nes {
 
     pub fn run_frame(&mut self) {
         while !self.bus.ppu.frame_ready {
-            let cycles = self.cpu.step(&mut self.bus);
+            let mut cycles = self.cpu.step(&mut self.bus);
+
+            // OAM DMA halts the CPU for 513 cycles; during that time
+            // the PPU and APU keep running.
+            cycles += self.bus.take_dma_stall();
 
             self.bus.ppu.catch_up((cycles * 3) as i32);
 
             self.bus.clock_apu(cycles);
 
+            let mut interrupt_cycles = 0;
+
             if self.bus.ppu.nmi_pending {
                 self.bus.ppu.nmi_pending = false;
 
                 self.bus.apu.debug_event("NMI");
-                self.cpu.nmi(&mut self.bus);
-            } else if self.bus.apu.irq_line() || self.bus.ppu.cart.irq_pending() {
+                interrupt_cycles = self.cpu.nmi(&mut self.bus);
+            } else if (self.bus.apu.irq_line() || self.bus.ppu.cart.irq_pending())
+                && self.cpu.irq(&mut self.bus)
+            {
                 // Level-triggered APU and mapper IRQ lines. Ignored while the
                 // CPU's I flag is set; the game's handler is
-                // expected to acknowledge it by writing $4015 or
-                // $4010, which drops the line.
-                self.cpu.irq(&mut self.bus);
+                // expected to acknowledge it by writing $4015, $4010
+                // or the mapper's IRQ acknowledge register.
+                interrupt_cycles = 7;
+            }
+
+            if interrupt_cycles > 0 {
+                self.bus.ppu.catch_up((interrupt_cycles * 3) as i32);
+
+                self.bus.clock_apu(interrupt_cycles);
             }
         }
 

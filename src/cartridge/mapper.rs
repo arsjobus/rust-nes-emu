@@ -200,15 +200,27 @@ impl Mmc5Mapper {
             1 => {
                 self.chr[first
                     + if background {
-                        if slot < 4 { 2 } else { 3 }
+                        if slot < 4 {
+                            2
+                        } else {
+                            3
+                        }
                     } else {
-                        if slot < 4 { 3 } else { 7 }
+                        if slot < 4 {
+                            3
+                        } else {
+                            7
+                        }
                     }]
             }
             2 => {
                 self.chr[first
                     + if background {
-                        if slot < 4 { 1 } else { 3 }
+                        if slot < 4 {
+                            1
+                        } else {
+                            3
+                        }
                     } else {
                         (slot / 2) * 2 + 1
                     }]
@@ -549,10 +561,9 @@ impl UxromMapper {
 
 impl Mapper for UxromMapper {
     fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
-        let bank_count = prg.len() / 0x4000;
-
-        // UxROM cartridges require at least two 16 KiB PRG banks.
-        assert!(bank_count >= 2, "UxROM requires at least 32 KiB of PRG ROM");
+        // Real UxROM boards have at least two 16 KiB banks; a trimmed
+        // dump with a single bank must not panic the emulator.
+        let bank_count = (prg.len() / 0x4000).max(1);
 
         let index = if addr < 0xc000 {
             // $8000-$BFFF:
@@ -671,8 +682,10 @@ impl Mapper for GxromMapper {
         prg[index % prg.len()]
     }
 
-    fn cpu_write(&mut self, _prg: &[u8], _addr: u16, value: u8) {
-        self.register = value;
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.register = value;
+        }
     }
 
     fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
@@ -719,8 +732,10 @@ impl Mapper for AxromMapper {
         prg[index % prg.len()]
     }
 
-    fn cpu_write(&mut self, _prg: &[u8], _addr: u16, value: u8) {
-        self.register = value;
+    fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        if addr >= 0x8000 {
+            self.register = value;
+        }
     }
 
     fn chr_read(&self, chr: &[u8], addr: u16) -> u8 {
@@ -775,7 +790,9 @@ impl Mmc3Mapper {
             } else {
                 Mirroring::Horizontal
             },
-            ram_enable: false,
+            // Real boards power on with PRG RAM accessible, and many
+            // games use $6000-$7FFF without ever touching $A001.
+            ram_enable: true,
             ram_write_protect: false,
             irq_latch: 0,
             irq_counter: 0,
@@ -1141,6 +1158,9 @@ impl Mapper for Mmc1Mapper {
     }
 
     fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        if addr < 0x8000 {
+            return;
+        }
         if value & 0x80 != 0 {
             self.shift = 0;
             self.writes = 0;

@@ -64,7 +64,19 @@ impl Cartridge {
         //
         // flags 7 bits 4-7 = mapper high nibble
         // flags 6 bits 4-7 = mapper low nibble
-        let mapper_num = (flags7 & 0xf0) | (flags6 >> 4);
+        //
+        // Old dumps tagged by tools such as "DiskDude!" leave text
+        // in header bytes 7-15, which corrupts flags 7 and yields a
+        // bogus mapper number. iNES 1.0 headers must have bytes
+        // 12-15 zero, so when they aren't (and the header isn't
+        // NES 2.0) the high nibble in flags 7 is ignored.
+        let nes2 = flags7 & 0x0c == 0x08;
+        let dirty_header = !nes2 && data[12..16].iter().any(|&b| b != 0);
+        let mapper_num = if dirty_header {
+            flags6 >> 4
+        } else {
+            (flags7 & 0xf0) | (flags6 >> 4)
+        };
 
         let vertical = flags6 & 1 != 0;
 
@@ -242,8 +254,12 @@ impl Cartridge {
 
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
-            // Unmapped: writes are ignored.
-            0x0000..=0x5fff => {
+            // $4020-$5FFF: only expansion-register mappers (MMC5)
+            // decode this range. Everything below $5000 is unmapped
+            // and must never reach a mapper, or a stray write would
+            // clock e.g. the MMC1 shift register.
+            0x0000..=0x4fff => {}
+            0x5000..=0x5fff => {
                 self.mapper.cpu_write(&self.prg, addr, value);
             }
 

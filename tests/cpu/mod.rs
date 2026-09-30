@@ -58,8 +58,8 @@ fn relative_branch_uses_signed_offset_from_next_instruction() {
     load_program(&mut cpu, &mut bus, 0x0010, &[0xd0, 0xfc]);
     cpu.status &= !Z;
 
-    // Taken-branch cycle penalties are not modeled yet.
-    assert_eq!(cpu.step(&mut bus), 2);
+    // A taken branch to the same page costs one extra cycle.
+    assert_eq!(cpu.step(&mut bus), 3);
     assert_eq!(cpu.pc, 0x000e);
 }
 
@@ -73,4 +73,117 @@ fn indirect_jmp_wraps_high_byte_within_page() {
 
     assert_eq!(cpu.step(&mut bus), 5);
     assert_eq!(cpu.pc, 0x1234);
+}
+
+#[test]
+fn taken_branch_across_a_page_costs_two_extra_cycles() {
+    let (mut cpu, mut bus) = setup();
+    // BNE +$10 at $00F0: the next instruction is $00F2, the target
+    // $0102 is on another page.
+    load_program(&mut cpu, &mut bus, 0x00f0, &[0xd0, 0x10]);
+    cpu.status &= !Z;
+
+    assert_eq!(cpu.step(&mut bus), 4);
+    assert_eq!(cpu.pc, 0x0102);
+}
+
+#[test]
+fn branch_not_taken_costs_two_cycles() {
+    let (mut cpu, mut bus) = setup();
+    load_program(&mut cpu, &mut bus, 0x0010, &[0xd0, 0x10]);
+    cpu.status |= Z;
+
+    assert_eq!(cpu.step(&mut bus), 2);
+    assert_eq!(cpu.pc, 0x0012);
+}
+
+#[test]
+fn indexed_reads_pay_a_page_cross_cycle_but_stores_do_not() {
+    let (mut cpu, mut bus) = setup();
+    // LDA $02FF,X ; STA $02FF,X ; LDA $0210,X
+    load_program(
+        &mut cpu,
+        &mut bus,
+        0x0000,
+        &[0xbd, 0xff, 0x02, 0x9d, 0xff, 0x02, 0xbd, 0x10, 0x02],
+    );
+    cpu.x = 1;
+
+    assert_eq!(cpu.step(&mut bus), 5, "LDA abs,X crossing a page");
+    assert_eq!(cpu.step(&mut bus), 5, "STA abs,X is always 5");
+    assert_eq!(cpu.step(&mut bus), 4, "LDA abs,X without a crossing");
+}
+
+/// Unofficial NOPs must consume their operand bytes; treating them
+/// as one-byte NOPs desynchronises the instruction stream.
+#[test]
+fn unofficial_nops_consume_their_operands() {
+    let cases: &[(&[u8], u16, u32)] = &[
+        (&[0x1a], 1, 2),
+        (&[0x80, 0x12], 2, 2),
+        (&[0x04, 0x12], 2, 3),
+        (&[0x14, 0x12], 2, 4),
+        (&[0x0c, 0x34, 0x12], 3, 4),
+        (&[0x1c, 0x34, 0x12], 3, 4),
+    ];
+
+    for (bytes, len, cycles) in cases {
+        let (mut cpu, mut bus) = setup();
+        load_program(&mut cpu, &mut bus, 0x0000, bytes);
+        assert_eq!(cpu.step(&mut bus), *cycles, "{:02x?}", bytes);
+        assert_eq!(cpu.pc, *len, "{:02x?}", bytes);
+    }
+}
+
+#[test]
+fn lax_loads_a_and_x_and_sax_stores_their_and() {
+    let (mut cpu, mut bus) = setup();
+    // LAX $10 ; SAX $11
+    load_program(&mut cpu, &mut bus, 0x0000, &[0xa7, 0x10, 0x87, 0x11]);
+    bus.write(0x0010, 0x8c);
+
+    cpu.step(&mut bus);
+    assert_eq!((cpu.a, cpu.x), (0x8c, 0x8c));
+    assert!(cpu.flag(N));
+
+    cpu.x = 0x0f;
+    cpu.step(&mut bus);
+    assert_eq!(bus.read(0x0011), 0x0c);
+}
+
+#[test]
+fn read_modify_write_combos_match_their_official_parts() {
+    let (mut cpu, mut bus) = setup();
+    // DCP $10 ; ISB $11 ; SLO $12
+    load_program(
+        &mut cpu,
+        &mut bus,
+        0x0000,
+        &[0xc7, 0x10, 0xe7, 0x11, 0x07, 0x12],
+    );
+    bus.write(0x0010, 0x41);
+    bus.write(0x0011, 0x0f);
+    bus.write(0x0012, 0x81);
+    cpu.a = 0x40;
+
+    cpu.step(&mut bus); // memory 0x40, compare A(0x40) with it
+    assert_eq!(bus.read(0x0010), 0x40);
+    assert!(cpu.flag(Z) && cpu.flag(C));
+
+    cpu.status |= C;
+    cpu.a = 0x20;
+    cpu.step(&mut bus); // memory 0x10, A = 0x20 - 0x10
+    assert_eq!(bus.read(0x0011), 0x10);
+    assert_eq!(cpu.a, 0x10);
+
+    cpu.step(&mut bus); // memory 0x02 with carry out, A |= 0x02
+    assert_eq!(bus.read(0x0012), 0x02);
+    assert!(cpu.flag(C));
+    assert_eq!(cpu.a, 0x12);
+}
+
+#[test]
+fn nmi_reports_seven_cycles() {
+    let (mut cpu, mut bus) = setup();
+    assert_eq!(cpu.nmi(&mut bus), 7);
 }

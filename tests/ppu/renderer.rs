@@ -16,7 +16,7 @@ fn ppu_with_solid_sprite_tile() -> Ppu {
 
     ppu.palette[0x00] = 0x0f; // backdrop: black
     ppu.palette[0x11] = 0x30; // sprite palette 0, colour 1: white
-    ppu.mask = 0x10; // sprites on, background off
+    ppu.mask = 0x14; // sprites on (including the left 8 pixels), background off
 
     ppu
 }
@@ -142,4 +142,54 @@ fn tall_sprites_use_the_same_one_line_delay() {
     assert_eq!(pixel(&ppu, 60, 31), SPRITE_RGB);
     assert_eq!(pixel(&ppu, 60, 46), SPRITE_RGB, "16th row at N+16");
     assert_eq!(pixel(&ppu, 60, 47), BACKDROP_RGB);
+}
+
+/// $2001 bit 2 clear hides sprites in the leftmost 8 pixels.
+#[test]
+fn sprites_are_clipped_in_left_8_pixels_unless_enabled() {
+    let mut ppu = ppu_with_solid_sprite_tile();
+    hide_all_sprites(&mut ppu);
+    set_sprite(&mut ppu, 0, 20, 4);
+
+    ppu.mask = 0x10; // sprites on, left column masked
+    ppu.render_scanline(21);
+    assert_eq!(pixel(&ppu, 3, 21), BACKDROP_RGB);
+    assert_eq!(pixel(&ppu, 7, 21), BACKDROP_RGB, "x < 8 is clipped");
+    assert_eq!(pixel(&ppu, 8, 21), SPRITE_RGB, "x >= 8 is still drawn");
+
+    ppu.mask = 0x14; // left column shown
+    ppu.render_scanline(21);
+    assert_eq!(pixel(&ppu, 4, 21), SPRITE_RGB);
+}
+
+/// $2001 bit 1 clear hides the background in the leftmost 8 pixels.
+#[test]
+fn background_is_clipped_in_left_8_pixels_unless_enabled() {
+    let mut ppu = ppu_with_solid_sprite_tile();
+    hide_all_sprites(&mut ppu);
+    ppu.palette[0x01] = 0x30; // background palette 0, colour 1: white
+                              // Nametable is all tile 0, which is solid colour 1.
+
+    ppu.mask = 0x08; // background on, left column masked
+    ppu.render_scanline(10);
+    assert_eq!(pixel(&ppu, 0, 10), BACKDROP_RGB);
+    assert_eq!(pixel(&ppu, 7, 10), BACKDROP_RGB);
+    assert_eq!(pixel(&ppu, 8, 10), SPRITE_RGB);
+
+    ppu.mask = 0x0a; // background on, left column shown
+    ppu.render_scanline(10);
+    assert_eq!(pixel(&ppu, 0, 10), SPRITE_RGB);
+}
+
+/// Vertical scroll advances whenever rendering is enabled, even
+/// with sprites alone.
+#[test]
+fn sprite_only_rendering_still_advances_vertical_scroll() {
+    let mut ppu = ppu_with_solid_sprite_tile();
+    hide_all_sprites(&mut ppu);
+    ppu.v = 0;
+
+    ppu.render_scanline(0);
+
+    assert_eq!(ppu.v & 0x7000, 0x1000, "fine Y incremented");
 }

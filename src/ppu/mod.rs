@@ -296,8 +296,10 @@ impl Ppu {
             // Our scanline renderer does not model individual fetch
             // cycles, so approximate that edge at the equivalent
             // point in the scanline rather than at its beginning.
+            // The pre-render line (261) clocks the counter as well;
+            // that clock is what reloads it at the top of the frame.
             if self.mask & 0x18 != 0
-                && (0..=239).contains(&self.scanline)
+                && ((0..=239).contains(&self.scanline) || self.scanline == 261)
                 && old_dot <= 260
                 && 260 < self.dot
             {
