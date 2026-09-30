@@ -284,9 +284,9 @@ impl Controller {
          *
          * Analog stick is OR'd with the physical D-pad.
          */
-        self.usb_buttons.up = dpad_up || stick_y < -AXIS_THRESHOLD;
+        self.usb_buttons.up = dpad_up || stick_y > AXIS_THRESHOLD;
 
-        self.usb_buttons.down = dpad_down || stick_y > AXIS_THRESHOLD;
+        self.usb_buttons.down = dpad_down || stick_y < -AXIS_THRESHOLD;
 
         self.usb_buttons.left = dpad_left || stick_x < -AXIS_THRESHOLD;
 
@@ -374,9 +374,9 @@ impl Controller {
             }
 
             Axis::LeftStickY => {
-                self.usb_buttons.up = value < -AXIS_THRESHOLD;
+                self.usb_buttons.up = value > AXIS_THRESHOLD;
 
-                self.usb_buttons.down = value > AXIS_THRESHOLD;
+                self.usb_buttons.down = value < -AXIS_THRESHOLD;
             }
 
             _ => {}
