@@ -119,7 +119,7 @@ Other parameters include `--bloom-threshold`, `--bloom-radius`,
 `--auto-gradient-horizontal`, `--scanlines-strength`, `--vignette-strength`,
 and `--crt-strength`.
 
-## Input Devies
+## Input Devices
 
 1. Keyboard
 2. Gamepad Controller (Logitech)
