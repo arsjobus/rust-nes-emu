@@ -141,3 +141,4 @@ and `--crt-strength`.
 ## Useful Links
 
 https://www.nesdev.org/wiki/Nesdev_Wiki
+E2E Tests: https://www.nesdev.org/wiki/Emulator_tests
