@@ -95,7 +95,14 @@ impl Cpu {
         if matches!(mode, Mode::Acc) {
             self.a = value;
         } else {
-            bus.write(addr.expect("memory operand requires address"), value);
+            let addr = addr.expect("memory operand requires address");
+            if addr >= 0x8000 {
+                // Only read-modify-write instructions store through
+                // here; on cartridge space they double-write.
+                bus.write_rmw(addr, value);
+            } else {
+                bus.write(addr, value);
+            }
         }
     }
 }

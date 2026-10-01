@@ -38,13 +38,20 @@ impl Nes {
             // the PPU and APU keep running.
             cycles += self.bus.take_dma_stall();
 
-            self.bus.ppu.catch_up((cycles * 3) as i32);
+            // Dots already run inside the instruction (PPU register
+            // reads) must not be counted twice.
+            let already = self.bus.take_ppu_advanced();
+            self.bus.ppu.catch_up((cycles * 3) as i32 - already);
 
             self.bus.clock_apu(cycles);
 
             let mut interrupt_cycles = 0;
 
-            if self.bus.ppu.nmi_pending {
+            if self.bus.ppu.nmi_pending && self.bus.ppu.nmi_delay {
+                // NMI raised by enabling it in $2000 during vblank is
+                // taken after the *next* instruction, not this one.
+                self.bus.ppu.nmi_delay = false;
+            } else if self.bus.ppu.nmi_pending {
                 self.bus.ppu.nmi_pending = false;
 
                 self.bus.apu.debug_event("NMI");

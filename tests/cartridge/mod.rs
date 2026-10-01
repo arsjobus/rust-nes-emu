@@ -335,3 +335,114 @@ fn dirty_ines_header_ignores_high_mapper_nibble() {
     let _ = std::fs::remove_file(&path);
     assert!(cart.is_err(), "mapper 65 is unsupported");
 }
+
+#[test]
+fn mmc1_ignores_the_second_write_of_a_read_modify_write() {
+    let mut cart = make_cart(1, 8, 1, true);
+    mmc1_write_register(&mut cart, 0xe000, 2);
+    assert_eq!(cart.cpu_read(0x8000), 2);
+
+    // First write of an RMW (the old value, bit 7 set) resets the shift
+    // register and control; the second (new value) must be dropped.
+    cart.cpu_write(0x8000, 0x80);
+    cart.cpu_write_consecutive(0x8000, 0x01);
+    // A clean 5-write sequence still works, proving the shift register
+    // did not pick up the stray bit.
+    mmc1_write_register(&mut cart, 0xe000, 5);
+    assert_eq!(cart.cpu_read(0x8000), 5);
+
+    // Other mappers accept the second write.
+    let mut uxrom = make_cart(2, 4, 0, false);
+    uxrom.cpu_write(0x8000, 1);
+    uxrom.cpu_write_consecutive(0x8000, 2);
+    assert_eq!(uxrom.cpu_read(0x8000), 2);
+}
+
+#[test]
+fn mmc1_512k_surom_uses_chr_bit_4_as_outer_prg_bank() {
+    let mut cart = make_cart(1, 32, 0, false); // 512 KiB PRG
+    assert_eq!(cart.cpu_read(0xc000), 15); // last bank of the low half
+    mmc1_write_register(&mut cart, 0xe000, 3);
+    assert_eq!(cart.cpu_read(0x8000), 3);
+
+    mmc1_write_register(&mut cart, 0xa000, 0x10); // outer bank -> upper half
+    assert_eq!(cart.cpu_read(0x8000), 19);
+    assert_eq!(cart.cpu_read(0xc000), 31);
+}
+
+#[test]
+fn color_dreams_selects_prg_and_chr_from_one_register() {
+    let mut cart = make_cart(11, 4, 4, false); // 2 x 32K PRG (16K units: 4)
+    cart.cpu_write(0x8000, 0x21); // PRG 1, CHR 2
+    assert_eq!(cart.cpu_read(0x8000), 2); // 32K bank 1 starts at 16K unit 2
+    assert_eq!(cart.chr_read(0x0000), 2);
+}
+
+#[test]
+fn nina03_registers_decode_in_the_4100_window() {
+    let mut cart = make_cart(79, 4, 4, false);
+    cart.cpu_write(0x4100, 0x0a); // PRG bank 1, CHR 2
+    assert_eq!(cart.cpu_read(0x8000), 2);
+    assert_eq!(cart.chr_read(0), 2);
+    cart.cpu_write(0x4000, 0x00); // outside the window: ignored
+    cart.cpu_write(0x4200, 0x00); // bit 8 clear: ignored
+    assert_eq!(cart.chr_read(0), 2);
+}
+
+#[test]
+fn camerica_fixes_last_bank_and_switches_first() {
+    let mut cart = make_cart(71, 8, 0, false);
+    assert_eq!(cart.cpu_read(0xc000), 7);
+    cart.cpu_write(0xc000, 3);
+    assert_eq!(cart.cpu_read(0x8000), 3);
+    assert_eq!(cart.cpu_read(0xc000), 7);
+    cart.cpu_write(0x9000, 0x10);
+    assert_eq!(cart.mirroring, super::Mirroring::OneScreenUpper);
+}
+
+#[test]
+fn uxrom_180_fixes_the_first_bank() {
+    let mut cart = make_cart(180, 4, 0, false);
+    cart.cpu_write(0x8000, 2);
+    assert_eq!(cart.cpu_read(0x8000), 0);
+    assert_eq!(cart.cpu_read(0xc000), 2);
+}
+
+#[test]
+fn mapper_87_and_140_use_registers_in_the_prg_ram_window() {
+    let mut cart = make_cart(87, 2, 4, false);
+    cart.cpu_write(0x6000, 0x01); // bits swapped: CHR bank 2
+    assert_eq!(cart.chr_read(0), 2);
+
+    let mut cart = make_cart(140, 4, 4, false);
+    cart.cpu_write(0x6000, 0x13); // PRG 1, CHR 3
+    assert_eq!(cart.cpu_read(0x8000), 2);
+    assert_eq!(cart.chr_read(0), 3);
+}
+
+#[test]
+fn namco_108_has_no_irq_or_mirroring_registers() {
+    let mut cart = make_cart(206, 8, 8, true);
+    cart.cpu_write(0x8000, 6);
+    cart.cpu_write(0x8001, 0x02);
+    assert_eq!(cart.cpu_read(0x8000), 1); // 8K bank 2 lives in 16K unit 1
+    cart.cpu_write(0xa000, 1); // MMC3 mirroring register: ignored
+    assert!(cart.mirroring_vertical);
+    cart.cpu_write(0xc000, 0);
+    cart.cpu_write(0xc001, 0);
+    cart.cpu_write(0xe001, 0);
+    for _ in 0..4 {
+        cart.clock_scanline();
+    }
+    assert!(!cart.irq_pending());
+}
+
+#[test]
+fn txsrom_takes_nametable_page_from_chr_bank_bit_7() {
+    let mut cart = make_cart(118, 8, 8, false);
+    cart.cpu_write(0x8000, 0); // select R0
+    cart.cpu_write(0x8001, 0x80); // bit 7 => page 1 for $2000/$2400
+    assert_eq!(cart.nametable_ciram_page(0), Some(1));
+    assert_eq!(cart.nametable_ciram_page(1), Some(1));
+    assert_eq!(cart.nametable_ciram_page(2), Some(0));
+}

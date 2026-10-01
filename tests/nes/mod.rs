@@ -46,3 +46,37 @@ fn runs_program_with_prg_ram_and_one_nmi_per_frame() {
         "expected ~30 NMIs over 30 frames, got {nmis}"
     );
 }
+
+/// Regression: a main loop that polls $2002 for vblank while the NMI
+/// handler also reads $2002 (clearing the flag) must still make
+/// progress. On hardware the flag is set part-way through an
+/// instruction, so a poll can see it just before the NMI is taken, and
+/// RTI restores the N flag from that poll.
+///
+///   8000: LDA #$80 ; STA $2000       ; enable NMI
+///   8005: LDA $2002 ; BPL $8005      ; wait for vblank
+///   800A: INC $01                    ; one step per vblank seen
+///   800C: JMP $8005
+///
+///   8020: LDA $2002 ; RTI            ; NMI handler clears the flag
+#[test]
+fn vblank_poll_loop_progresses_when_nmi_handler_reads_ppustatus() {
+    let mut code = vec![
+        0xa9, 0x80, 0x8d, 0x00, 0x20, 0xad, 0x02, 0x20, 0x10, 0xfb, 0xe6, 0x01, 0x4c, 0x05, 0x80,
+    ];
+    code.resize(0x20, 0xea);
+    code.extend_from_slice(&[0xad, 0x02, 0x20, 0x40]);
+
+    let cart = make_nrom_program(&code, 0x8020, 0x8000, 0x8000);
+    let mut nes = Nes::new(cart);
+
+    for _ in 0..30 {
+        nes.run_frame();
+    }
+
+    assert!(
+        nes.bus.ram[1] >= 10,
+        "main loop stalled: saw vblank only {} times in 30 frames",
+        nes.bus.ram[1]
+    );
+}

@@ -229,7 +229,13 @@ impl Apu {
 
     pub fn cpu_read(&mut self, addr: u16) -> u8 {
         match addr {
-            0x4015 => self.status(),
+            0x4015 => {
+                let status = self.status();
+                // Reading $4015 acknowledges the frame IRQ (but not
+                // the DMC IRQ, which is cleared through $4015 writes).
+                self.frame_counter.irq_flag = false;
+                status
+            }
             0x5010 => {
                 let v = ((self.mmc5_pcm_irq && self.mmc5_pcm_irq_enabled) as u8) << 7 | 1;
                 self.mmc5_pcm_irq = false;
@@ -516,6 +522,10 @@ impl Apu {
             result |= 0x10;
         }
 
+        if self.frame_counter.irq_flag {
+            result |= 0x40;
+        }
+
         if self.dmc.irq_flag {
             result |= 0x80;
         }
@@ -537,7 +547,9 @@ impl Apu {
      */
     // True while any modeled APU interrupt source is asserting IRQ.
     pub fn irq_line(&self) -> bool {
-        self.dmc.irq_flag || self.mmc5_pcm_irq && self.mmc5_pcm_irq_enabled
+        self.frame_counter.irq_flag
+            || self.dmc.irq_flag
+            || self.mmc5_pcm_irq && self.mmc5_pcm_irq_enabled
     }
 
     pub fn take_pending_dmc_fetch(&mut self) -> Option<u16> {

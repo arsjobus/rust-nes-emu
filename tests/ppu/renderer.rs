@@ -193,3 +193,43 @@ fn sprite_only_rendering_still_advances_vertical_scroll() {
 
     assert_eq!(ppu.v & 0x7000, 0x1000, "fine Y incremented");
 }
+
+/// A "behind background" sprite that is hidden by an opaque background
+/// pixel still owns that column: a higher-index sprite drawn there must
+/// not show through it.
+#[test]
+fn hidden_behind_sprite_still_blocks_lower_priority_sprites() {
+    let mut ppu = ppu_with_solid_sprite_tile();
+    ppu.mask = 0x1e; // background + sprites, left 8 pixels shown
+    ppu.palette[0x01] = 0x16; // background colour 1
+    ppu.palette[0x15] = 0x2a; // sprite palette 1, colour 1
+    hide_all_sprites(&mut ppu);
+
+    set_sprite(&mut ppu, 0, 20, 100);
+    ppu.oam[2] = 0x20; // sprite 0: behind background
+    set_sprite(&mut ppu, 1, 20, 100);
+    ppu.oam[6] = 0x01; // sprite 1: in front, palette 1
+
+    ppu.render_scanline(24);
+
+    let background = {
+        let c = ppu.system_color(0x16);
+        ((c.0 as u32) << 16) | ((c.1 as u32) << 8) | c.2 as u32
+    };
+    assert_eq!(pixel(&ppu, 102, 24), background);
+}
+
+/// Without a hiding background, the lowest-index sprite is on top.
+#[test]
+fn lowest_index_sprite_wins_over_overlapping_sprites() {
+    let mut ppu = ppu_with_solid_sprite_tile();
+    ppu.palette[0x15] = 0x2a;
+    hide_all_sprites(&mut ppu);
+    set_sprite(&mut ppu, 0, 20, 100);
+    set_sprite(&mut ppu, 1, 20, 100);
+    ppu.oam[6] = 0x01;
+
+    ppu.render_scanline(24);
+
+    assert_eq!(pixel(&ppu, 102, 24), SPRITE_RGB);
+}

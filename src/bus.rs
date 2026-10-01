@@ -8,6 +8,14 @@ pub struct Bus {
 
     /// CPU cycles still owed for an OAM DMA transfer.
     dma_stall: u32,
+
+    /// CPU cycles of the running instruction that elapse before its
+    /// memory read. Set by the CPU so a PPU register read can see the
+    /// PPU as it is at that cycle rather than at the start of the
+    /// instruction.
+    pub(crate) pre_read_cycles: u32,
+    /// PPU dots already run ahead inside the current instruction.
+    ppu_advanced_dots: i32,
 }
 
 impl Bus {
@@ -18,7 +26,14 @@ impl Bus {
             apu: Apu::new(),
             controller,
             dma_stall: 0,
+            pre_read_cycles: 0,
+            ppu_advanced_dots: 0,
         }
+    }
+
+    /// Takes (and clears) the PPU dots already executed mid-instruction.
+    pub fn take_ppu_advanced(&mut self) -> i32 {
+        std::mem::take(&mut self.ppu_advanced_dots)
     }
 
     /// Takes (and clears) the CPU stall cycles accumulated by OAM DMA.
@@ -45,7 +60,18 @@ impl Bus {
         match addr {
             0x0000..=0x1fff => self.ram[(addr & 0x07ff) as usize],
 
-            0x2000..=0x3fff => self.ppu.cpu_read(addr & 7),
+            0x2000..=0x3fff => {
+                // Bring the PPU up to the cycle of this read first, so
+                // e.g. a vblank-wait loop sees the flag at the right
+                // moment instead of a whole instruction late.
+                if self.pre_read_cycles > 0 {
+                    let dots = (self.pre_read_cycles * 3) as i32;
+                    self.pre_read_cycles = 0;
+                    self.ppu.catch_up(dots);
+                    self.ppu_advanced_dots += dots;
+                }
+                self.ppu.cpu_read(addr & 7)
+            }
 
             0x4000..=0x4015 => self.apu.cpu_read(addr),
 
@@ -65,6 +91,16 @@ impl Bus {
                 value
             }
         }
+    }
+
+    /// Final write of a read-modify-write instruction to cartridge
+    /// space. The real CPU writes the old value back first and then
+    /// the new one on the next cycle; mappers such as MMC1 only see
+    /// (and act on) the first.
+    pub fn write_rmw(&mut self, addr: u16, value: u8) {
+        let old = self.ppu.cart.cpu_read(addr);
+        self.write(addr, old);
+        self.ppu.cart.cpu_write_consecutive(addr, value);
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {

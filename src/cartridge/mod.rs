@@ -1,6 +1,12 @@
 use std::{fs, path::PathBuf};
 
+mod discrete;
 mod mapper;
+
+use discrete::{
+    BnromMapper, CamericaMapper, ColorDreamsMapper, Mapper140, Mapper87, Nina001Mapper,
+    Nina03Mapper, Uxrom180Mapper,
+};
 
 pub use mapper::{
     AxromMapper, CnromMapper, GxromMapper, Mapper, Mirroring, Mmc1Mapper, Mmc2Mapper, Mmc3Mapper,
@@ -20,6 +26,16 @@ pub enum MapperKind {
     Mmc1,
     Mmc3,
     Mmc5,
+    ColorDreams,
+    Bnrom,
+    Nina001,
+    Camerica,
+    Nina03,
+    Jaleco87,
+    Jaleco140,
+    Uxrom180,
+    Namco108,
+    TxSrom,
 }
 
 pub struct Cartridge {
@@ -52,9 +68,9 @@ impl Cartridge {
             return Err("Not a valid iNES ROM".into());
         }
 
-        let prg_units = data[4] as usize;
+        let mut prg_units = data[4] as usize;
 
-        let chr_units = data[5] as usize;
+        let mut chr_units = data[5] as usize;
 
         let flags6 = data[6];
 
@@ -72,11 +88,23 @@ impl Cartridge {
         // NES 2.0) the high nibble in flags 7 is ignored.
         let nes2 = flags7 & 0x0c == 0x08;
         let dirty_header = !nes2 && data[12..16].iter().any(|&b| b != 0);
-        let mapper_num = if dirty_header {
-            flags6 >> 4
+        let mut mapper_num: u16 = if dirty_header {
+            (flags6 >> 4) as u16
         } else {
-            (flags7 & 0xf0) | (flags6 >> 4)
+            ((flags7 & 0xf0) | (flags6 >> 4)) as u16
         };
+
+        // NES 2.0 extends the mapper number to 12 bits and the ROM
+        // sizes (non-exponent form) to 12 bits each.
+        if nes2 {
+            mapper_num |= ((data[8] & 0x0f) as u16) << 8;
+            if data[9] & 0x0f != 0x0f {
+                prg_units |= ((data[9] & 0x0f) as usize) << 8;
+            }
+            if data[9] >> 4 != 0x0f {
+                chr_units |= ((data[9] >> 4) as usize) << 8;
+            }
+        }
 
         let vertical = flags6 & 1 != 0;
 
@@ -112,9 +140,15 @@ impl Cartridge {
         offset += prg_size;
 
         let (chr, chr_ram) = if chr_size == 0 {
-            // No CHR ROM means the cartridge
-            // uses CHR RAM.
-            (vec![0u8; 8192], true)
+            // No CHR ROM means the cartridge uses CHR RAM. NES 2.0
+            // headers state its size (64 << n bytes); otherwise 8 KiB.
+            let ram_shift = if nes2 { data[11] & 0x0f } else { 0 };
+            let ram_size = if ram_shift > 0 {
+                (64usize << ram_shift).max(8192)
+            } else {
+                8192
+            };
+            (vec![0u8; ram_size], true)
         } else {
             if offset + chr_size > data.len() {
                 return Err("ROM CHR data is truncated".into());
@@ -144,6 +178,18 @@ impl Cartridge {
             1 => (MapperKind::Mmc1, Box::new(Mmc1Mapper::new(vertical))),
             4 => (MapperKind::Mmc3, Box::new(Mmc3Mapper::new(vertical))),
             5 => (MapperKind::Mmc5, Box::new(Mmc5Mapper::new(vertical))),
+
+            // Discrete-logic boards and MMC3 relatives.
+            11 => (MapperKind::ColorDreams, Box::new(ColorDreamsMapper::new())),
+            34 if chr_ram => (MapperKind::Bnrom, Box::new(BnromMapper::new())),
+            34 => (MapperKind::Nina001, Box::new(Nina001Mapper::new())),
+            71 => (MapperKind::Camerica, Box::new(CamericaMapper::new())),
+            79 => (MapperKind::Nina03, Box::new(Nina03Mapper::new())),
+            87 => (MapperKind::Jaleco87, Box::new(Mapper87::new())),
+            118 => (MapperKind::TxSrom, Box::new(Mmc3Mapper::txsrom(vertical))),
+            140 => (MapperKind::Jaleco140, Box::new(Mapper140::new())),
+            180 => (MapperKind::Uxrom180, Box::new(Uxrom180Mapper::new())),
+            206 => (MapperKind::Namco108, Box::new(Mmc3Mapper::namco108(vertical))),
 
             n => {
                 return Err(format!("Unsupported mapper {}", n));
@@ -254,12 +300,13 @@ impl Cartridge {
 
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
-            // $4020-$5FFF: only expansion-register mappers (MMC5)
-            // decode this range. Everything below $5000 is unmapped
-            // and must never reach a mapper, or a stray write would
-            // clock e.g. the MMC1 shift register.
-            0x0000..=0x4fff => {}
-            0x5000..=0x5fff => {
+            // $4020-$5FFF: only expansion-register mappers (MMC5 at
+            // $5000+, NINA-03 at $4100+) decode this range. Everything
+            // below $4100 is unmapped and must never reach a mapper,
+            // or a stray write would clock e.g. the MMC1 shift
+            // register. Mappers ignore addresses they don't decode.
+            0x0000..=0x40ff => {}
+            0x4100..=0x5fff => {
                 self.mapper.cpu_write(&self.prg, addr, value);
             }
 
@@ -268,6 +315,7 @@ impl Cartridge {
             // write here must never reach the mapper (previously
             // a stray write to this range switched GxROM banks).
             0x6000..=0x7fff => {
+                self.mapper.cpu_write_prg_ram_area(addr, value);
                 if self.mapper.prg_ram_writable() {
                     let index = self.mapper.cpu_ram_index(addr) % self.prg_ram.len();
                     self.prg_ram[index] = value;
@@ -293,6 +341,15 @@ impl Cartridge {
                 }
             }
         }
+    }
+
+    /// Second write of a read-modify-write instruction (the CPU has
+    /// already sent the unmodified value as the first write).
+    pub(crate) fn cpu_write_consecutive(&mut self, addr: u16, value: u8) {
+        if addr >= 0x8000 && self.mapper.ignores_consecutive_writes() {
+            return;
+        }
+        self.cpu_write(addr, value);
     }
 
     pub(crate) fn cpu_write_prg_slot(&mut self, addr: u16, value: u8) -> bool {

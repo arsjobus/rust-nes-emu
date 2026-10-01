@@ -31,6 +31,16 @@ pub struct Ppu {
     /// An NMI has been raised and is waiting for the CPU to take
     /// it (the CPU services it after the current instruction).
     pub nmi_pending: bool,
+    /// The pending NMI was raised by a $2000 write. Hardware takes
+    /// it after the *next* instruction rather than immediately.
+    pub(crate) nmi_delay: bool,
+
+    /// Absolute PPU dot counter (monotonic), used to time A12 edges.
+    pub(crate) cycle: u64,
+    /// Current level of PPU address line A12 as seen by the cartridge.
+    pub(crate) a12: bool,
+    /// `cycle` at which A12 last went low.
+    pub(crate) a12_low_since: u64,
 
     pub(crate) sprite0_col: Option<usize>,
     pub(crate) sprite0_flagged: bool,
@@ -66,6 +76,11 @@ impl Ppu {
 
             frame_ready: false,
             nmi_pending: false,
+            nmi_delay: false,
+
+            cycle: 0,
+            a12: false,
+            a12_low_since: 0,
 
             sprite0_col: None,
             sprite0_flagged: true,
@@ -140,6 +155,45 @@ impl Ppu {
         }
     }
 
+    /// A rising edge on A12 only clocks the MMC3 counter if the line
+    /// stayed low for a few CPU cycles first (the chip filters the
+    /// rapid toggling that happens during sprite pattern fetches).
+    const A12_FILTER_DOTS: u64 = 10;
+
+    /// Drives the cartridge-visible A12 level. `at` is the absolute
+    /// dot at which the change happens.
+    pub(crate) fn a12_set(&mut self, level: bool, at: u64) {
+        if level == self.a12 {
+            return;
+        }
+
+        if level {
+            if at.saturating_sub(self.a12_low_since) >= Self::A12_FILTER_DOTS {
+                self.cart.clock_scanline();
+            }
+        } else {
+            self.a12_low_since = at;
+        }
+
+        self.a12 = level;
+    }
+
+    /// True while the PPU is running its background/sprite fetch
+    /// pipeline (and so owns the address bus).
+    fn fetching(&self) -> bool {
+        self.mask & 0x18 != 0 && ((0..=239).contains(&self.scanline) || self.scanline == 261)
+    }
+
+    /// The CPU put `addr` on the PPU address bus through $2006 or
+    /// $2007. Only visible to the cartridge when the PPU is not
+    /// fetching itself.
+    fn a12_from_cpu(&mut self, addr: u16) {
+        if !self.fetching() {
+            let at = self.cycle;
+            self.a12_set(addr & 0x1000 != 0, at);
+        }
+    }
+
     pub fn cpu_read(&mut self, register: u16) -> u8 {
         match register {
             2 => {
@@ -156,6 +210,8 @@ impl Ppu {
             7 => {
                 let addr = self.v & 0x3fff;
 
+                self.a12_from_cpu(addr);
+
                 let result;
 
                 if addr < 0x3f00 {
@@ -169,6 +225,7 @@ impl Ppu {
                 }
 
                 self.v = self.v.wrapping_add(if self.ctrl & 4 != 0 { 32 } else { 1 }) & 0x7fff;
+                self.a12_from_cpu(self.v);
 
                 result
             }
@@ -191,7 +248,9 @@ impl Ppu {
                     // NMI that has been raised but not yet taken
                     // by the CPU is cancelled.
                     self.nmi_pending = false;
+                    self.nmi_delay = false;
                 } else if !nmi_was_enabled && self.status & 0x80 != 0 {
+                    self.nmi_delay = true;
                     // Enabling NMI (0 -> 1) while the vblank flag
                     // is already set raises an NMI immediately,
                     // even mid-vblank. Games that don't read
@@ -242,15 +301,19 @@ impl Ppu {
 
                     self.v = self.t;
                     self.w = 0;
+                    self.a12_from_cpu(self.v);
                 }
             }
 
             7 => {
                 let addr = self.v & 0x3fff;
 
+                self.a12_from_cpu(addr);
+
                 self.internal_write(addr, value);
 
                 self.v = self.v.wrapping_add(if self.ctrl & 4 != 0 { 32 } else { 1 }) & 0x7fff;
+                self.a12_from_cpu(self.v);
             }
 
             _ => {}
@@ -287,23 +350,37 @@ impl Ppu {
             let step = space.min(dots);
 
             let old_dot = self.dot;
+            let base = self.cycle;
 
             self.dot += step;
             dots -= step;
+            self.cycle += step as u64;
 
-            // MMC3 IRQs are clocked by the PPU address bus when
-            // sprite pattern fetches raise A12, around dot 260.
-            // Our scanline renderer does not model individual fetch
-            // cycles, so approximate that edge at the equivalent
-            // point in the scanline rather than at its beginning.
-            // The pre-render line (261) clocks the counter as well;
-            // that clock is what reloads it at the top of the frame.
-            if self.mask & 0x18 != 0
-                && ((0..=239).contains(&self.scanline) || self.scanline == 261)
-                && old_dot <= 260
-                && 260 < self.dot
-            {
-                self.cart.clock_scanline();
+            // MMC3 IRQs are clocked by rising edges of PPU address line
+            // A12. The scanline renderer does not model individual
+            // fetches, so synthesize the A12 level the fetch pipeline
+            // would drive at three points of every rendering line:
+            //
+            //   dot   5: background pattern fetches start (BG table)
+            //   dot 261: sprite pattern fetches start (sprite table)
+            //   dot 325: next-line background prefetch (BG table)
+            //
+            // With BG at $0000 / sprites at $1000 this gives the
+            // classic clock at dot ~260; with BG at $1000 / sprites at
+            // $0000 it gives one at ~324; with both on the same table
+            // A12 never rises after the first fetch, exactly like
+            // hardware. 8x16 sprites count as "high" because unused
+            // sprite slots fetch tile $FF ($1000 table).
+            if self.fetching() {
+                let bg_high = self.ctrl & 0x10 != 0;
+                let sprite_high = self.ctrl & 0x28 != 0;
+
+                for (event_dot, level) in [(5, bg_high), (261, sprite_high), (325, bg_high)] {
+                    if old_dot < event_dot && event_dot <= self.dot {
+                        let at = base + (event_dot - old_dot) as u64;
+                        self.a12_set(level, at);
+                    }
+                }
             }
 
             if self.scanline >= 0 && self.scanline < 240 && !self.sprite0_flagged {
@@ -349,6 +426,7 @@ impl Ppu {
 
                 if self.ctrl & 0x80 != 0 {
                     self.nmi_pending = true;
+                    self.nmi_delay = false;
                 }
             }
 

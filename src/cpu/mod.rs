@@ -177,6 +177,11 @@ pub struct Cpu {
     /// Set by the addressing-mode code when an indexed access
     /// crossed a page boundary.
     pub(crate) page_crossed: bool,
+    /// The I flag as the interrupt poll saw it after the last
+    /// instruction. CLI, SEI and PLP change I too late for the poll
+    /// at the end of their own execution, so an IRQ is judged against
+    /// the *old* value and takes effect one instruction later.
+    irq_poll_i: Option<bool>,
 }
 
 impl Cpu {
@@ -193,6 +198,7 @@ impl Cpu {
 
             extra_cycles: 0,
             page_crossed: false,
+            irq_poll_i: None,
         }
     }
 
@@ -233,7 +239,16 @@ impl Cpu {
             self.extra_cycles += 1;
         }
 
+        let i_before = self.flag(I);
+
+        // The instruction's memory read happens on its last cycle.
+        bus.pre_read_cycles = (instruction.cycles + self.extra_cycles).saturating_sub(1);
+
         self.execute(bus, instruction, addr);
+
+        bus.pre_read_cycles = 0;
+
+        self.irq_poll_i = matches!(instruction.op, Op::Cli | Op::Sei | Op::Plp).then_some(i_before);
 
         instruction.cycles + self.extra_cycles
     }
@@ -266,7 +281,9 @@ impl Cpu {
      * Returns true if the interrupt was actually taken.
      */
     pub fn irq(&mut self, bus: &mut Bus) -> bool {
-        if self.flag(I) {
+        let masked = self.irq_poll_i.take().unwrap_or_else(|| self.flag(I));
+
+        if masked {
             return false;
         }
 

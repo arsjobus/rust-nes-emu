@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod rom_harness;
 mod apu;
 mod audio;
 mod bus;

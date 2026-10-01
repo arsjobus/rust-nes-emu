@@ -96,6 +96,18 @@ pub trait Mapper {
     fn prg_slot_is_ram(&self, _addr: u16) -> bool {
         false
     }
+
+    /// Boards with registers in the $6000-$7FFF window (NINA-001,
+    /// Jaleco JF-11, ...). Called for every CPU write there, in
+    /// addition to the normal PRG RAM write.
+    fn cpu_write_prg_ram_area(&mut self, _addr: u16, _value: u8) {}
+
+    /// MMC1 ignores a write that follows another write on the very
+    /// next CPU cycle, which is what the second write of a
+    /// read-modify-write instruction is.
+    fn ignores_consecutive_writes(&self) -> bool {
+        false
+    }
 }
 
 // MMC5 register and PPU-side state. Audio wave generation lives in the APU.
@@ -763,7 +775,19 @@ impl Mapper for AxromMapper {
 //
 // Supports the six 1 KiB / two 2 KiB CHR registers, four 8 KiB PRG
 // slots, mirroring, PRG RAM enable/protect, and scanline IRQ registers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mmc3Variant {
+    Standard,
+    /// Mapper 206 (Namco 108 / DxROM): MMC3 bank registers only, no
+    /// IRQ, mirroring register, PRG RAM control or mode bits.
+    Namco108,
+    /// Mapper 118 (TxSROM): MMC3 where bit 7 of the CHR bank registers
+    /// picks the CIRAM nametable page instead of the mirroring register.
+    TxSrom,
+}
+
 pub struct Mmc3Mapper {
+    variant: Mmc3Variant,
     bank_select: u8,
     banks: [u8; 8],
     prg_mode: bool,
@@ -779,8 +803,23 @@ pub struct Mmc3Mapper {
 }
 
 impl Mmc3Mapper {
+    pub fn namco108(vertical: bool) -> Self {
+        Self {
+            variant: Mmc3Variant::Namco108,
+            ..Self::new(vertical)
+        }
+    }
+
+    pub fn txsrom(vertical: bool) -> Self {
+        Self {
+            variant: Mmc3Variant::TxSrom,
+            ..Self::new(vertical)
+        }
+    }
+
     pub fn new(vertical: bool) -> Self {
         Self {
+            variant: Mmc3Variant::Standard,
             bank_select: 0,
             banks: [0; 8],
             prg_mode: false,
@@ -822,15 +861,21 @@ impl Mmc3Mapper {
         let mut slots = [0usize; 8];
         let r0 = (self.banks[0] & 0xfe) as usize;
         let r1 = (self.banks[1] & 0xfe) as usize;
+        // TxSROM repurposes bit 7 of every CHR register.
+        let mask = if self.variant == Mmc3Variant::TxSrom {
+            0x7f
+        } else {
+            0xff
+        };
         let six = [
-            r0,
-            r0 + 1,
-            r1,
-            r1 + 1,
-            self.banks[2] as usize,
-            self.banks[3] as usize,
-            self.banks[4] as usize,
-            self.banks[5] as usize,
+            r0 & mask,
+            (r0 + 1) & mask,
+            r1 & mask,
+            (r1 + 1) & mask,
+            (self.banks[2] as usize) & mask,
+            (self.banks[3] as usize) & mask,
+            (self.banks[4] as usize) & mask,
+            (self.banks[5] as usize) & mask,
         ];
         if self.chr_inversion {
             slots.copy_from_slice(&[
@@ -848,6 +893,20 @@ impl Mapper for Mmc3Mapper {
         prg[self.prg_index(prg, addr) % prg.len()]
     }
     fn cpu_write(&mut self, _prg: &[u8], addr: u16, value: u8) {
+        if self.variant == Mmc3Variant::Namco108 {
+            match addr & 0xe001 {
+                0x8000 => self.bank_select = value & 7,
+                0x8001 => {
+                    self.banks[self.bank_select as usize] = match self.bank_select {
+                        0 | 1 => value & 0x3e,
+                        2..=5 => value & 0x3f,
+                        _ => value & 0x0f,
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         match (addr & 0xe001, addr & 1) {
             (0x8000, 0) => {
                 self.bank_select = value & 7;
@@ -892,7 +951,23 @@ impl Mapper for Mmc3Mapper {
         }
     }
     fn mirroring_override(&self) -> Option<Mirroring> {
-        Some(self.mirroring)
+        match self.variant {
+            Mmc3Variant::Standard => Some(self.mirroring),
+            // Header mirroring is fixed on DxROM; TxSROM overrides
+            // every nametable individually via `nametable_ciram_page`.
+            _ => None,
+        }
+    }
+    fn nametable_ciram_page(&self, table: usize) -> Option<usize> {
+        if self.variant != Mmc3Variant::TxSrom {
+            return None;
+        }
+        let register = if self.chr_inversion {
+            [2, 3, 4, 5][table & 3]
+        } else {
+            [0, 0, 1, 1][table & 3]
+        };
+        Some((self.banks[register] >> 7) as usize & 1)
     }
     fn prg_ram_enabled(&self) -> bool {
         self.ram_enable
@@ -901,6 +976,9 @@ impl Mapper for Mmc3Mapper {
         self.ram_enable && !self.ram_write_protect
     }
     fn clock_scanline(&mut self) {
+        if self.variant == Mmc3Variant::Namco108 {
+            return;
+        }
         if self.irq_counter == 0 || self.irq_reload {
             self.irq_counter = self.irq_latch;
             self.irq_reload = false;
@@ -1135,12 +1213,24 @@ impl Mmc1Mapper {
 impl Mapper for Mmc1Mapper {
     fn cpu_read(&self, prg: &[u8], addr: u16) -> u8 {
         let banks = (prg.len() / 0x4000).max(1);
-        let selected = self.prg_bank as usize & 0x0f;
+        // SUROM/SXROM boards (512 KiB PRG) use bit 4 of the CHR bank 0
+        // register as an outer bank select between two 256 KiB halves.
+        let outer = if prg.len() > 0x40000 {
+            self.chr_bank0 as usize & 0x10
+        } else {
+            0
+        };
+        let selected = (self.prg_bank as usize & 0x0f) | outer;
+        let last = if prg.len() > 0x40000 {
+            outer | 0x0f
+        } else {
+            banks - 1
+        };
         let bank = match (self.control >> 2) & 3 {
             0 | 1 => (selected & !1) + (((addr as usize - 0x8000) / 0x4000) & 1),
             2 => {
                 if addr < 0xc000 {
-                    0
+                    outer
                 } else {
                     selected
                 }
@@ -1149,7 +1239,7 @@ impl Mapper for Mmc1Mapper {
                 if addr < 0xc000 {
                     selected
                 } else {
-                    banks - 1
+                    last
                 }
             }
         } % banks;
@@ -1214,5 +1304,8 @@ impl Mapper for Mmc1Mapper {
     }
     fn prg_ram_enabled(&self) -> bool {
         self.prg_bank & 0x10 == 0
+    }
+    fn ignores_consecutive_writes(&self) -> bool {
+        true
     }
 }

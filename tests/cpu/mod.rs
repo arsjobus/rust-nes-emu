@@ -187,3 +187,27 @@ fn nmi_reports_seven_cycles() {
     let (mut cpu, mut bus) = setup();
     assert_eq!(cpu.nmi(&mut bus), 7);
 }
+
+/// CLI does not unmask IRQs until one more instruction has executed.
+#[test]
+fn irq_is_taken_one_instruction_after_cli() {
+    let (mut cpu, mut bus) = setup();
+    load_program(&mut cpu, &mut bus, 0x0000, &[0x58, 0xea, 0xea]); // CLI, NOP, NOP
+    cpu.status |= I;
+
+    cpu.step(&mut bus); // CLI
+    assert!(!cpu.irq(&mut bus), "IRQ must not be taken right after CLI");
+    cpu.step(&mut bus); // NOP
+    assert!(cpu.irq(&mut bus), "IRQ is taken after the following instruction");
+}
+
+/// SEI likewise only masks IRQs after the next instruction.
+#[test]
+fn irq_still_fires_one_instruction_after_sei() {
+    let (mut cpu, mut bus) = setup();
+    load_program(&mut cpu, &mut bus, 0x0000, &[0x78, 0xea]); // SEI, NOP
+    cpu.status &= !I;
+
+    cpu.step(&mut bus); // SEI
+    assert!(cpu.irq(&mut bus));
+}

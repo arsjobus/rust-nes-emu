@@ -318,7 +318,14 @@ impl Ppu {
             });
         }
 
-        for sprite in prepared.iter().rev() {
+        // Sprite-vs-sprite priority: the lowest OAM index that has an
+        // opaque pixel at a column wins that column, *even if it is a
+        // "behind background" sprite that ends up hidden by the
+        // background*. Later sprites must not show through it. So walk
+        // in OAM order and claim columns as they are taken.
+        let mut claimed = [false; 256];
+
+        for sprite in prepared.iter() {
             let index = sprite.index;
             let sprite_x = sprite.sprite_x;
             let horizontal_flip = sprite.horizontal_flip;
@@ -361,6 +368,12 @@ impl Ppu {
                         self.sprite0_flagged = false;
                     }
                 }
+
+                if claimed[screen_x] {
+                    continue;
+                }
+
+                claimed[screen_x] = true;
 
                 if behind_background && self.bg_opaque[screen_x] != 0 {
                     continue;
