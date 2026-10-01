@@ -312,6 +312,7 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     let mut previous_pad_down = false;
     let mut previous_pad_select = false;
     let mut previous_reset = false;
+    let mut start_held_since: Option<Instant> = None;
     let mut recorder: Option<crate::recorder::Recorder> = None;
     let mut lut_notice: Option<(String, Instant)> = None;
 
@@ -422,8 +423,18 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         previous_pad_up = pad_up;
         previous_pad_down = pad_down;
         previous_pad_select = pad_select;
+        let mut return_to_menu = false;
         if let Some(nes) = nes.as_mut() {
             nes.update_input(&keyboard);
+            if nes.bus.controller.buttons().start {
+                let held_since = start_held_since.get_or_insert_with(Instant::now);
+                if held_since.elapsed() >= Duration::from_secs(3) {
+                    return_to_menu = true;
+                    start_held_since = None;
+                }
+            } else {
+                start_held_since = None;
+            }
             if nes.bus.controller.take_record_toggle() {
                 if let Some(active) = recorder.take() {
                     match active.finish() {
@@ -505,6 +516,18 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                     );
                 }
             }
+        }
+
+        if return_to_menu {
+            if let Some(current) = nes.as_ref() {
+                if let Err(error) = current.save_battery_ram() {
+                    eprintln!("Could not save battery RAM: {}", error);
+                }
+            }
+            nes = None;
+            roms = find_roms();
+            selection = 0;
+            menu_gamepad = Gilrs::new().ok();
         }
 
         if nes.is_none() {
