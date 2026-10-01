@@ -78,15 +78,19 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     let sdl = sdl2::init().expect("Could not initialize SDL");
     let video = sdl.video().expect("Could not initialize SDL video");
     let audio_subsystem = sdl.audio().ok();
-    let window = video
-        .window(
-            "RuNES",
-            (WIDTH * INITIAL_SCALE) as u32,
-            (HEIGHT * INITIAL_SCALE) as u32,
-        )
+    let mut window_builder = video.window(
+        "RuNES",
+        (WIDTH * INITIAL_SCALE) as u32,
+        (HEIGHT * INITIAL_SCALE) as u32,
+    );
+    window_builder
         .position_centered()
         .resizable()
-        .allow_highdpi()
+        .allow_highdpi();
+    if args.iter().any(|arg| arg == "--full-screen") {
+        window_builder.fullscreen_desktop();
+    }
+    let window = window_builder
         .build()
         .expect("Could not create window");
     let mut canvas = window
@@ -95,15 +99,19 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
         .present_vsync()
         .build()
         .or_else(|_| {
-            video
-                .window(
-                    "RuNES",
-                    (WIDTH * INITIAL_SCALE) as u32,
-                    (HEIGHT * INITIAL_SCALE) as u32,
-                )
+            let mut builder = video.window(
+                "RuNES",
+                (WIDTH * INITIAL_SCALE) as u32,
+                (HEIGHT * INITIAL_SCALE) as u32,
+            );
+            builder
                 .position_centered()
                 .resizable()
-                .allow_highdpi()
+                .allow_highdpi();
+            if args.iter().any(|arg| arg == "--full-screen") {
+                builder.fullscreen_desktop();
+            }
+            builder
                 .build()
                 .unwrap()
                 .into_canvas()

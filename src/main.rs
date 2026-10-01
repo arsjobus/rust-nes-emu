@@ -113,6 +113,7 @@ fn print_usage() {
     eprintln!("  R                       Return from a game to the ROM menu");
     eprintln!();
     eprintln!("Other options:");
+    eprintln!("  --full-screen           Start in desktop full-screen mode");
     eprintln!("  --help                  Show this help");
     eprintln!();
     eprintln!("Environment variables:");

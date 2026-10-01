@@ -14,6 +14,8 @@ New here? Start with the [Getting Started guide](docs/GETTING_STARTED.md) for bu
   `roms/`.
 - **Gamepad and keyboard controls:** Play with the keyboard or a USB gamepad.
   Return to the ROM menu and rescan for games without restarting the emulator.
+  Hold **Start** for three seconds to return to the ROM menu.
+- **Full-screen mode:** Start in desktop full-screen mode with `--full-screen`.
 - **Video and audio recording:** Record gameplay to MP4 with game audio using
   **0** or the gamepad's **right trigger**. FFmpeg with `libx264` support is
   required to finalize recordings.
@@ -49,11 +51,15 @@ Directory: https://nesdir.github.io/
 
 `cargo run --release -- path/to/game.nes`
 
+Add `--full-screen` to start in desktop full-screen mode:
+
+`cargo run --release -- path/to/game.nes --full-screen`
+
 Start without a ROM to show animated TV static and a ROM picker:
 
 `cargo run --release`
 
-The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** or the controller's **right trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Press **Left Shift** or the controller's **left trigger** to toggle turbo for held A/B buttons. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. Press controller **X** to toggle the CRT phosphor, scanline, and edge-shading effect. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. Press **O** to rescan, or **R** while playing to return to the menu. **Esc** quits.
+The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** or the controller's **right trigger** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Press **Left Shift** or the controller's **left trigger** to toggle turbo for held A/B buttons. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. Press controller **X** to toggle the CRT phosphor, scanline, and edge-shading effect. Hold **Start** for three seconds (or press **R**) to return to the ROM menu. Press **O** to rescan the ROM list. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. **Esc** quits.
 
 ### Battery Saves
 
@@ -93,6 +99,14 @@ SDL2 is built from source and linked statically through the Rust SDL2 bindings. 
 ```
 
 ## Post Processing Effect Switches
+
+Pass `--full-screen` to start in desktop full-screen mode. It can be combined
+with a ROM path and any display effects, for example:
+
+```sh
+cargo run --release -- path/to/game.nes --full-screen --scanlines
+cargo run --release -- --full-screen
+```
 
 1. --ntsc
 2. --persistence
