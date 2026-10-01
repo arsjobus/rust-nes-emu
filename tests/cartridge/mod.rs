@@ -446,3 +446,125 @@ fn txsrom_takes_nametable_page_from_chr_bank_bit_7() {
     assert_eq!(cart.nametable_ciram_page(1), Some(1));
     assert_eq!(cart.nametable_ciram_page(2), Some(0));
 }
+
+fn mmc5_set(cart: &mut super::Cartridge, mode: u8, regs: [u8; 4]) {
+    cart.cpu_write(0x5100, mode);
+    for (i, reg) in regs.iter().enumerate() {
+        cart.cpu_write(0x5114 + i as u16, *reg);
+    }
+}
+
+/// 256 KiB PRG = 32 x 8 KiB banks; the helper fills each 16 KiB unit with
+/// its own number, so 8 KiB bank n reads as n / 2.
+fn mmc5_cart() -> super::Cartridge {
+    make_cart(5, 16, 0, false)
+}
+
+#[test]
+fn mmc5_prg_mode_0_maps_32k_from_5117_and_is_always_rom() {
+    let mut cart = mmc5_cart();
+    // Bit 7 clear on $5117 must NOT turn the window into RAM.
+    mmc5_set(&mut cart, 0, [0, 0, 0, 0x0c]); // 32K bank 3 => 8K banks 12..15
+    assert_eq!(cart.cpu_read(0x8000), 6);
+    assert_eq!(cart.cpu_read(0xa000), 6);
+    assert_eq!(cart.cpu_read(0xc000), 7);
+    assert_eq!(cart.cpu_read(0xe000), 7);
+}
+
+#[test]
+fn mmc5_prg_mode_1_maps_two_16k_halves() {
+    let mut cart = mmc5_cart();
+    mmc5_set(&mut cart, 1, [0, 0x84, 0, 0x0a]); // $8000: 8K bank 4 (ROM); $C000: 8K bank 10
+    assert_eq!(cart.cpu_read(0x8000), 2);
+    assert_eq!(cart.cpu_read(0xa000), 2);
+    assert_eq!(cart.cpu_read(0xc000), 5);
+    assert_eq!(cart.cpu_read(0xe000), 5);
+}
+
+#[test]
+fn mmc5_prg_mode_2_maps_16k_then_two_8k() {
+    let mut cart = mmc5_cart();
+    mmc5_set(&mut cart, 2, [0, 0x84, 0x8b, 0x1f]); // 16K@4 ; $C000: bank 11 ; $E000: last
+    assert_eq!(cart.cpu_read(0x8000), 2);
+    assert_eq!(cart.cpu_read(0xa000), 2);
+    assert_eq!(cart.cpu_read(0xc000), 5); // 8K bank 11 => unit 5
+    assert_eq!(cart.cpu_read(0xe000), 15); // 8K bank 31 => unit 15, not bank 0
+}
+
+#[test]
+fn mmc5_prg_mode_3_maps_four_8k_banks_and_5117_is_rom() {
+    let mut cart = mmc5_cart();
+    mmc5_set(&mut cart, 3, [0x82, 0x84, 0x86, 0x08]);
+    assert_eq!(cart.cpu_read(0x8000), 1);
+    assert_eq!(cart.cpu_read(0xa000), 2);
+    assert_eq!(cart.cpu_read(0xc000), 3);
+    assert_eq!(cart.cpu_read(0xe000), 4); // bit 7 clear on $5117 still ROM
+}
+
+/// 128 KiB CHR = 16 x 8 KiB; each 8 KiB unit is filled with its number.
+fn mmc5_chr_cart(mode: u8) -> super::Cartridge {
+    let mut cart = make_cart(5, 4, 16, false);
+    cart.cpu_write(0x5101, mode);
+    cart
+}
+
+#[test]
+fn mmc5_chr_mode_0_uses_5127_for_the_sprite_set() {
+    let mut cart = mmc5_chr_cart(0);
+    cart.cpu_write(0x5127, 2); // 8 KiB unit 2
+    assert_eq!(cart.chr_read(0x0000), 2);
+    assert_eq!(cart.chr_read(0x1fff), 2);
+}
+
+#[test]
+fn mmc5_chr_mode_1_sprite_set_uses_5123_and_5127() {
+    let mut cart = mmc5_chr_cart(1);
+    cart.cpu_write(0x5123, 2); // 4 KiB unit 2 => 8 KiB unit 1
+    cart.cpu_write(0x5127, 6); // 4 KiB unit 6 => 8 KiB unit 3
+    assert_eq!(cart.chr_read(0x0000), 1);
+    assert_eq!(cart.chr_read(0x1000), 3);
+}
+
+/// Background fetch with 8x16 sprites enabled (separate register set).
+fn bg(cart: &super::Cartridge, addr: u16) -> u8 {
+    cart.bg_chr_read(addr, 0, 0, true, (0, 0))
+}
+
+#[test]
+fn mmc5_background_set_in_4k_mode_uses_512b_for_both_tables() {
+    let mut cart = mmc5_chr_cart(1);
+    cart.cpu_write(0x512b, 6); // 4 KiB unit 6 => 8 KiB unit 3
+    assert_eq!(bg(&cart, 0x0000), 3);
+    assert_eq!(bg(&cart, 0x1000), 3);
+}
+
+#[test]
+fn mmc5_background_set_in_2k_mode_repeats_across_both_tables() {
+    let mut cart = mmc5_chr_cart(2);
+    cart.cpu_write(0x5129, 4); // 2 KiB unit 4 => 8 KiB unit 1
+    cart.cpu_write(0x512b, 8); // 2 KiB unit 8 => 8 KiB unit 2
+    assert_eq!(bg(&cart, 0x0000), 1);
+    assert_eq!(bg(&cart, 0x0800), 2);
+    assert_eq!(bg(&cart, 0x1000), 1);
+    assert_eq!(bg(&cart, 0x1800), 2);
+}
+
+#[test]
+fn mmc5_background_set_in_8k_mode_uses_512b() {
+    let mut cart = mmc5_chr_cart(0);
+    cart.cpu_write(0x512b, 5);
+    assert_eq!(bg(&cart, 0x0000), 5);
+}
+
+#[test]
+fn mmc5_background_set_in_1k_mode_cycles_5128_to_512b() {
+    let mut cart = mmc5_chr_cart(3);
+    for (i, bank) in [0u8, 8, 16, 24].iter().enumerate() {
+        cart.cpu_write(0x5128 + i as u16, *bank); // 1 KiB banks => 8 KiB units 0..3
+    }
+    assert_eq!(bg(&cart, 0x0000), 0);
+    assert_eq!(bg(&cart, 0x0400), 1);
+    assert_eq!(bg(&cart, 0x0800), 2);
+    assert_eq!(bg(&cart, 0x0c00), 3);
+    assert_eq!(bg(&cart, 0x1400), 1); // $1000 table repeats the same four
+}

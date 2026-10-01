@@ -163,40 +163,55 @@ impl Mmc5Mapper {
             multiply: [0; 2],
         }
     }
-    fn slot_reg(&self, slot: usize) -> u8 {
+    /// Which of $5114-$5117 (index 0-3) controls the 8 KiB slot.
+    fn slot_source(&self, slot: usize) -> usize {
         match self.prg_mode {
-            0 => self.prg[3],
+            0 => 3,
             1 => {
                 if slot < 2 {
-                    self.prg[1]
+                    1
                 } else {
-                    self.prg[3]
+                    3
                 }
             }
             2 => {
                 if slot < 2 {
-                    self.prg[1]
+                    1
                 } else {
-                    self.prg[slot]
+                    slot
                 }
             }
-            _ => self.prg[slot],
+            _ => slot,
         }
     }
+    fn slot_reg(&self, slot: usize) -> u8 {
+        self.prg[self.slot_source(slot)]
+    }
+    /// Only $5114-$5116 can select PRG RAM (bit 7 clear). $5117 always
+    /// selects ROM, so every window it controls is ROM regardless of
+    /// bit 7 - including all of mode 0 and the upper half in modes 1/2.
+    fn slot_is_ram(&self, slot: usize) -> bool {
+        let source = self.slot_source(slot);
+        source != 3 && self.prg[source] & 0x80 == 0
+    }
     fn slot_bank(&self, slot: usize, count: usize) -> usize {
-        let reg = self.slot_reg(slot);
-        let shift = match self.prg_mode {
-            0 => 2,
-            1 if slot < 2 => 1,
-            2 if slot < 2 => 1,
-            _ => 0,
+        let reg = self.slot_reg(slot) as usize & 0x7f;
+        let bank = match self.prg_mode {
+            // One 32 KiB bank.
+            0 => (reg & !3) + slot,
+            // Two 16 KiB banks.
+            1 => (reg & !1) + (slot & 1),
+            // 16 KiB at $8000, then two independent 8 KiB banks.
+            2 => {
+                if slot < 2 {
+                    (reg & !1) + (slot & 1)
+                } else {
+                    reg
+                }
+            }
+            // Four 8 KiB banks.
+            _ => reg,
         };
-        let mut bank = ((reg as usize & 0x7f) >> shift) << shift;
-        if self.prg_mode == 0 {
-            bank += slot;
-        } else if matches!(self.prg_mode, 1 | 2) && slot % 2 == 1 {
-            bank += 1;
-        }
         bank % count
     }
     fn prg_index(&self, prg: &[u8], addr: u16) -> usize {
@@ -204,40 +219,39 @@ impl Mmc5Mapper {
         let slot = ((addr - 0x8000) / 0x2000) as usize;
         self.slot_bank(slot, count) * 0x2000 + (addr as usize & 0x1fff)
     }
+    /// 1 KiB bank number for the 1 KiB slot (0-7) of the pattern table
+    /// space. `background` selects register set B ($5128-$512B), which
+    /// is used for background fetches while 8x16 sprites are on; set A
+    /// ($5120-$5127) serves everything else.
     fn chr_bank(&self, slot: usize, background: bool) -> usize {
         let mode = self.chr_mode;
-        let first = if background { 8 } else { 0 };
-        let reg = match mode {
-            0 => self.chr[first + 3],
-            1 => {
-                self.chr[first
-                    + if background {
-                        if slot < 4 {
-                            2
-                        } else {
-                            3
-                        }
+        let reg = if background {
+            // Set B has only four registers and repeats across both
+            // pattern tables.
+            match mode {
+                0 | 1 => self.chr[11],
+                2 => {
+                    if slot & 3 < 2 {
+                        self.chr[9]
                     } else {
-                        if slot < 4 {
-                            3
-                        } else {
-                            7
-                        }
-                    }]
+                        self.chr[11]
+                    }
+                }
+                _ => self.chr[8 + (slot & 3)],
             }
-            2 => {
-                self.chr[first
-                    + if background {
-                        if slot < 4 {
-                            1
-                        } else {
-                            3
-                        }
+        } else {
+            match mode {
+                0 => self.chr[7],
+                1 => {
+                    if slot < 4 {
+                        self.chr[3]
                     } else {
-                        (slot / 2) * 2 + 1
-                    }]
+                        self.chr[7]
+                    }
+                }
+                2 => self.chr[(slot / 2) * 2 + 1],
+                _ => self.chr[slot],
             }
-            _ => self.chr[first + if background { slot & 3 } else { slot }],
         } as usize;
         let unit = match mode {
             0 => 8,
@@ -453,15 +467,22 @@ impl Mapper for Mmc5Mapper {
     }
     fn read_slot_ram_index(&self, addr: u16) -> Option<usize> {
         let slot = ((addr - 0x8000) / 0x2000) as usize;
-        if slot < 3 && self.slot_reg(slot) & 0x80 == 0 {
-            Some((self.slot_reg(slot) & 7) as usize * 0x2000 + (addr as usize & 0x1fff))
+        if self.slot_is_ram(slot) {
+            let reg = self.slot_reg(slot) as usize & 7;
+            // A RAM window that is 16 KiB wide uses the register's
+            // bank number with its low bit replaced by the slot half.
+            let bank = if self.prg_mode != 3 && slot < 2 {
+                (reg & !1) + (slot & 1)
+            } else {
+                reg
+            };
+            Some(bank * 0x2000 + (addr as usize & 0x1fff))
         } else {
             None
         }
     }
     fn prg_slot_is_ram(&self, addr: u16) -> bool {
-        let slot = ((addr - 0x8000) / 0x2000) as usize;
-        slot < 3 && self.slot_reg(slot) & 0x80 == 0
+        self.slot_is_ram(((addr - 0x8000) / 0x2000) as usize)
     }
     fn write_slot_ram_index(&self, addr: u16) -> Option<usize> {
         if self.prg_ram_writable() {
