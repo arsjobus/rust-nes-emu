@@ -8,7 +8,7 @@ pub(crate) const HEIGHT: usize = 240;
 pub struct Ppu {
     pub(crate) cart: Cartridge,
 
-    pub(crate) vram: [u8; 2048],
+    pub(crate) vram: [u8; 4096],
     pub(crate) palette: [u8; 32],
     pub(crate) oam: [u8; 256],
 
@@ -55,7 +55,7 @@ impl Ppu {
         Self {
             cart,
 
-            vram: [0; 2048],
+            vram: [0; 4096],
             palette: [0; 32],
             oam: [0; 256],
 
@@ -106,6 +106,7 @@ impl Ppu {
                 crate::cartridge::Mirroring::Horizontal => (table >> 1) & 1,
                 crate::cartridge::Mirroring::OneScreenLower => 0,
                 crate::cartridge::Mirroring::OneScreenUpper => 1,
+                crate::cartridge::Mirroring::FourScreen => table,
             }
         };
 
@@ -406,7 +407,6 @@ impl Ppu {
 
         if self.scanline > 261 {
             self.scanline = 0;
-            self.frame_ready = true;
             self.cart.ppu_frame_start();
         }
 
@@ -419,6 +419,13 @@ impl Ppu {
                 self.sprite0_flagged = true;
 
                 self.render_scanline(self.scanline as usize);
+            }
+
+            // The picture is complete once line 239 has been drawn. Signal
+            // the frontend here, not at line 0 of the next frame, so the
+            // presented frame never contains a line from the following one.
+            240 => {
+                self.frame_ready = true;
             }
 
             241 => {

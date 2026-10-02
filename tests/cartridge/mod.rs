@@ -568,3 +568,116 @@ fn mmc5_background_set_in_1k_mode_cycles_5128_to_512b() {
     assert_eq!(bg(&cart, 0x0c00), 3);
     assert_eq!(bg(&cart, 0x1400), 1); // $1000 table repeats the same four
 }
+
+// ---- header handling -------------------------------------------------
+
+use super::test_support::{load_image, raw_ines, unique_path};
+
+#[test]
+fn four_screen_flag_selects_four_screen_mirroring_and_survives_mapper_writes() {
+    // Mapper 4 (flags6 high nibble) with the four-screen bit set, as on
+    // DRROM-style boards. MMC3's $A000 mirroring register must not win.
+    let mut cart = load_image(&raw_ines(2, 1, 0x48, 0)).unwrap();
+    assert_eq!(cart.mirroring, super::Mirroring::FourScreen);
+
+    cart.cpu_write(0xa000, 1);
+    assert_eq!(cart.mirroring, super::Mirroring::FourScreen);
+}
+
+#[test]
+fn nes2_exponent_notation_sizes_are_rejected() {
+    let mut data = raw_ines(1, 1, 0, 0x08);
+    data[9] = 0x0f; // PRG size nibble 0xF = exponent-multiplier form
+    assert!(load_image(&data).is_err());
+}
+
+#[test]
+fn trainer_is_loaded_at_7000() {
+    let cart = load_image(&raw_ines(1, 1, 0x04, 0)).unwrap();
+    assert_eq!(cart.cpu_read(0x7000), 1);
+    assert_eq!(cart.cpu_read(0x7001), 2);
+    assert_eq!(cart.cpu_read(0x71ff), ((511 % 251) + 1) as u8);
+}
+
+#[test]
+fn battery_file_is_sized_from_the_header_not_the_64k_window() {
+    // iNES 1.0 byte 8 = number of 8 KiB PRG RAM units.
+    let mut data = raw_ines(1, 1, 0x02, 0);
+    data[8] = 4;
+    let path = unique_path();
+    std::fs::write(&path, &data).unwrap();
+    let cart = super::Cartridge::load(path.to_str().unwrap()).unwrap();
+    cart.save_battery_ram().unwrap();
+    let len = std::fs::metadata(path.with_extension("sav")).unwrap().len();
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sav"));
+    assert_eq!(len, 4 * 8192);
+
+    // No PRG RAM size in the header means the usual 8 KiB.
+    let cart = load_image(&raw_ines(1, 1, 0x02, 0)).unwrap();
+    assert_eq!(cart.save_size, 8192);
+}
+
+// ---- MMC5 ------------------------------------------------------------
+
+#[test]
+fn mmc5_status_register_reports_irq_pending_in_bit_7_and_in_frame_in_bit_6() {
+    let mut cart = mmc5_cart();
+    cart.cpu_write(0x5203, 2); // IRQ on scanline 2
+    cart.cpu_write(0x5204, 0x80); // enable
+
+    cart.clock_mmc5_scanline(0, true);
+    assert_eq!(cart.cpu_read(0x5204), 0x40, "in frame, nothing pending yet");
+
+    cart.clock_mmc5_scanline(1, true);
+    cart.clock_mmc5_scanline(2, true);
+    assert_eq!(
+        cart.cpu_read(0x5204),
+        0xc0,
+        "pending (bit 7) + in frame (bit 6)"
+    );
+}
+
+// ---- MMC3 index math -------------------------------------------------
+
+/// The slot-by-slot index helpers must behave exactly like the old
+/// table-building versions in every PRG/CHR mode.
+#[test]
+fn mmc3_prg_and_chr_banking_in_both_modes() {
+    // 128 KiB PRG (16 x 8 KiB), 64 KiB CHR (64 x 1 KiB); each 16 KiB PRG unit
+    // reads as its unit number, each 8 KiB CHR unit as its unit number.
+    let mut cart = make_cart(4, 8, 8, false);
+    let prg = |c: &super::Cartridge, a: u16| c.cpu_read(a);
+    let reg = |c: &mut super::Cartridge, r: u8, v: u8, mode: u8| {
+        c.cpu_write(0x8000, r | mode);
+        c.cpu_write(0x8001, v);
+    };
+
+    // PRG mode 0: R6 @ $8000, R7 @ $A000, (-2) @ $C000, (-1) @ $E000.
+    reg(&mut cart, 6, 2, 0); // 8K bank 2 => unit 1
+    reg(&mut cart, 7, 5, 0); // 8K bank 5 => unit 2
+    assert_eq!(prg(&cart, 0x8000), 1);
+    assert_eq!(prg(&cart, 0xa000), 2);
+    assert_eq!(prg(&cart, 0xc000), 7); // 8K bank 14 => unit 7
+    assert_eq!(prg(&cart, 0xe000), 7); // 8K bank 15 => unit 7
+
+    // PRG mode 1 swaps $8000 and $C000.
+    reg(&mut cart, 6, 2, 0x40);
+    assert_eq!(prg(&cart, 0x8000), 7);
+    assert_eq!(prg(&cart, 0xc000), 1);
+    assert_eq!(prg(&cart, 0xa000), 2);
+
+    // CHR: R0 (2 KiB) @ $0000, R2 (1 KiB) @ $1000 without inversion...
+    cart.cpu_write(0x8000, 0);
+    cart.cpu_write(0x8001, 8);
+    reg(&mut cart, 2, 17, 0);
+    assert_eq!(cart.chr_read(0x0000), 1); // 1 KiB bank 8 => unit 1
+    assert_eq!(cart.chr_read(0x0400), 1); // bank 9 => unit 1
+    assert_eq!(cart.chr_read(0x1000), 2); // bank 17 => unit 2
+
+    // ...and swapped with CHR inversion.
+    cart.cpu_write(0x8000, 0x80);
+    assert_eq!(cart.chr_read(0x1000), 1);
+    assert_eq!(cart.chr_read(0x1400), 1);
+    assert_eq!(cart.chr_read(0x0000), 2);
+}

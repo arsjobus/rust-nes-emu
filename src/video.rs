@@ -476,6 +476,9 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                     Instant::now(),
                 ));
             }
+            if let Some(audio) = audio.as_ref() {
+                nes.bus.apu.set_rate_adjust(audio.rate_adjust());
+            }
             nes.run_frame();
             let samples = nes.take_audio_samples();
             if let Some(audio) = audio.as_mut() {

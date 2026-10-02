@@ -60,6 +60,11 @@ pub struct Apu {
     output_filter: OutputFilter,
 
     sample_clock: f64,
+    sample_accum: f32,
+    sample_accum_count: u32,
+    /// Tiny multiplier on the output sample rate, used by the frontend to
+    /// keep the audio queue level steady (see `set_rate_adjust`).
+    rate_adjust: f64,
     samples: Vec<f32>,
 
     // Per-channel mute switches, controlled by environment
@@ -200,6 +205,9 @@ impl Apu {
             sample_rate: DEFAULT_SAMPLE_RATE,
             output_filter: OutputFilter::new(DEFAULT_SAMPLE_RATE),
             sample_clock: 0.0,
+            sample_accum: 0.0,
+            sample_accum_count: 0,
+            rate_adjust: 1.0,
             samples: Vec::with_capacity(2048),
 
             mute_pulse1: env_flag("NES_MUTE_PULSE1"),
@@ -222,6 +230,13 @@ impl Apu {
     // opened and its actual sample rate is known (before the main
     // loop starts running frames), so that generated audio always
     // matches what's actually being played back.
+    /// Trim the produced sample rate by a small factor (clamped to +/-1%).
+    /// The NES runs at ~60.0988 Hz while the host pacing is usually 60 Hz,
+    /// so without feedback the audio queue slowly drains or overfills.
+    pub fn set_rate_adjust(&mut self, factor: f64) {
+        self.rate_adjust = factor.clamp(0.99, 1.01);
+    }
+
     pub fn set_sample_rate(&mut self, sample_rate: f64) {
         self.sample_rate = sample_rate;
         self.output_filter = OutputFilter::new(sample_rate);
@@ -387,14 +402,17 @@ impl Apu {
         self.triangle.clock_timer();
         self.noise.clock_timer();
 
-        if self.cpu_cycle % 1_789_773 == 0 {
+        let second_boundary =
+            (self.trace_file.is_some() || self.debug_dmc) && self.cpu_cycle % 1_789_773 == 0;
+
+        if second_boundary {
             if let Some(file) = self.trace_file.as_mut() {
                 use std::io::Write;
                 let _ = file.flush();
             }
         }
 
-        if self.debug_dmc && self.cpu_cycle % 1_789_773 == 0 {
+        if self.debug_dmc && second_boundary {
             eprintln!(
                 "[dmc] t={}s fetches/s={} {}",
                 self.cpu_cycle / 1_789_773,
@@ -404,11 +422,18 @@ impl Apu {
             self.debug_fetches = 0;
         }
 
-        self.sample_clock += self.sample_rate / CPU_CLOCK;
+        // Average every CPU-cycle mix value that falls inside one output
+        // sample (a box filter). Point-sampling the 1.79 MHz signal at
+        // 48 kHz aliases the fast pulse/noise/DMC edges into audible hiss.
+        self.sample_accum += self.mix();
+        self.sample_accum_count += 1;
+        self.sample_clock += self.sample_rate * self.rate_adjust / CPU_CLOCK;
 
         while self.sample_clock >= 1.0 {
             self.sample_clock -= 1.0;
-            let mixed = self.mix();
+            let mixed = self.sample_accum / self.sample_accum_count.max(1) as f32;
+            self.sample_accum = 0.0;
+            self.sample_accum_count = 0;
             let filtered = self.output_filter.apply(mixed);
             let out = filtered.clamp(-1.0, 1.0);
             self.samples.push(out);

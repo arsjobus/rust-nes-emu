@@ -96,7 +96,10 @@ impl Pulse {
             3 => {
                 self.period = (self.period & 0x00ff) | (((value & 7) as u16) << 8);
 
-                self.length = LENGTH_TABLE[(value >> 3) as usize];
+                // A disabled channel ignores length loads ($4015).
+                if self.enabled {
+                    self.length = LENGTH_TABLE[(value >> 3) as usize];
+                }
 
                 self.sequence = 0;
                 self.envelope_start = true;
@@ -142,19 +145,26 @@ impl Pulse {
         }
     }
 
+    /// Period the sweep unit would switch to on its next update.
+    fn sweep_target(&self) -> i32 {
+        let change = (self.period >> self.sweep_shift) as i32;
+        if self.sweep_negate {
+            self.period as i32 - change - if self.channel_one { 1 } else { 0 }
+        } else {
+            self.period as i32 + change
+        }
+    }
+
+    /// The sweep unit silences the channel whenever the *target* period
+    /// overflows 11 bits - even when the sweep is disabled or shift is 0.
+    fn sweep_mutes(&self) -> bool {
+        !self.mmc5 && (self.period < 8 || self.sweep_target() > 0x7ff)
+    }
+
     pub(super) fn clock_sweep(&mut self) {
         if self.sweep_divider == 0 {
-            if self.sweep_enabled && self.sweep_shift != 0 {
-                let change = self.period >> self.sweep_shift;
-
-                if self.sweep_negate {
-                    self.period = self
-                        .period
-                        .wrapping_sub(change)
-                        .wrapping_sub(if self.channel_one { 1 } else { 0 });
-                } else {
-                    self.period = self.period.wrapping_add(change);
-                }
+            if self.sweep_enabled && self.sweep_shift != 0 && !self.sweep_mutes() {
+                self.period = self.sweep_target().max(0) as u16;
             }
 
             self.sweep_divider = self.sweep_period;
@@ -169,11 +179,7 @@ impl Pulse {
     }
 
     pub(super) fn output(&self) -> f32 {
-        if !self.enabled
-            || self.length == 0
-            || (!self.mmc5 && self.period < 8)
-            || self.period > 0x7ff
-        {
+        if !self.enabled || self.length == 0 || self.sweep_mutes() || self.period > 0x7ff {
             return 0.0;
         }
 
@@ -208,3 +214,7 @@ impl Pulse {
         (1.0 - duty) * volume as f32
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/apu/pulse.rs"]
+mod tests;

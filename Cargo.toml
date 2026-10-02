@@ -2,7 +2,18 @@
 name = "runes"
 version = "0.1.0"
 edition = "2024"
+# Edition 2024 needs Rust 1.85+; fail early with a clear message otherwise.
+rust-version = "1.85"
 
 [dependencies]
 sdl2 = { version = "0.38", features = ["bundled", "static-link"] }
 gilrs = "0.11.2"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+# An emulator is unusably slow at opt-level 0; a little optimization keeps
+# debug builds playable while still keeping debug assertions and symbols.
+[profile.dev]
+opt-level = 1

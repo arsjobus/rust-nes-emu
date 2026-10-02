@@ -170,7 +170,10 @@ impl Dmc {
             return;
         }
 
-        self.timer = self.period;
+        // `timer` counts down to 0 and fires on the *next* clock, so a
+        // reload of `period - 1` yields exactly `period` APU clocks
+        // (= the table's CPU-cycle rate) between output updates.
+        self.timer = self.period.saturating_sub(1);
 
         // Refill the sample buffer from CPU memory if it's empty
         // and there's still sample data left to fetch. We can only
@@ -267,3 +270,7 @@ impl Dmc {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/apu/dmc.rs"]
+mod tests;

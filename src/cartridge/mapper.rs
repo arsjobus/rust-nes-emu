@@ -4,6 +4,8 @@ pub enum Mirroring {
     Vertical,
     OneScreenLower,
     OneScreenUpper,
+    /// Cartridge supplies 4 KiB of nametable RAM (iNES flags 6 bit 3).
+    FourScreen,
 }
 
 pub trait Mapper {
@@ -371,7 +373,7 @@ impl Mapper for Mmc5Mapper {
     fn cpu_read_ext(&mut self, addr: u16) -> Option<u8> {
         match addr {
             0x5204 => {
-                let value = (self.irq_pending as u8) | ((self.in_frame as u8) << 6);
+                let value = ((self.irq_pending as u8) << 7) | ((self.in_frame as u8) << 6);
                 self.irq_pending = false;
                 Some(value)
             }
@@ -389,7 +391,7 @@ impl Mapper for Mmc5Mapper {
     }
     fn cpu_peek_ext(&self, addr: u16) -> Option<u8> {
         match addr {
-            0x5204 => Some((self.irq_pending as u8) | ((self.in_frame as u8) << 6)),
+            0x5204 => Some(((self.irq_pending as u8) << 7) | ((self.in_frame as u8) << 6)),
             0x5205 => Some((self.multiply[0] as u16 * self.multiply[1] as u16) as u8),
             0x5206 => Some(((self.multiply[0] as u16 * self.multiply[1] as u16) >> 8) as u8),
             0x5c00..=0x5fff if self.exram_mode >= 2 || !self.in_frame && self.exram_mode <= 1 => {
@@ -864,48 +866,37 @@ impl Mmc3Mapper {
 
     fn prg_index(&self, prg: &[u8], addr: u16) -> usize {
         let count = (prg.len() / 0x2000).max(1);
-        let last = count - 1;
-        let penultimate = count.saturating_sub(2);
-        let r6 = self.banks[6] as usize % count;
-        let r7 = self.banks[7] as usize % count;
-        let slots = if self.prg_mode {
-            [penultimate, r7, r6, last]
-        } else {
-            [r6, r7, penultimate, last]
-        };
         let slot = ((addr - 0x8000) / 0x2000) as usize;
-        slots[slot] * 0x2000 + (addr as usize & 0x1fff)
+        // Only resolve the one slot being read; this runs on every
+        // instruction fetch.
+        let bank = match (slot, self.prg_mode) {
+            (0, false) | (2, true) => self.banks[6] as usize % count,
+            (1, _) => self.banks[7] as usize % count,
+            (2, false) | (0, true) => count.saturating_sub(2),
+            _ => count - 1,
+        };
+        bank * 0x2000 + (addr as usize & 0x1fff)
     }
 
     fn chr_index(&self, chr: &[u8], addr: u16) -> usize {
         let count = (chr.len() / 0x400).max(1);
-        let mut slots = [0usize; 8];
-        let r0 = (self.banks[0] & 0xfe) as usize;
-        let r1 = (self.banks[1] & 0xfe) as usize;
         // TxSROM repurposes bit 7 of every CHR register.
         let mask = if self.variant == Mmc3Variant::TxSrom {
             0x7f
         } else {
             0xff
         };
-        let six = [
-            r0 & mask,
-            (r0 + 1) & mask,
-            r1 & mask,
-            (r1 + 1) & mask,
-            (self.banks[2] as usize) & mask,
-            (self.banks[3] as usize) & mask,
-            (self.banks[4] as usize) & mask,
-            (self.banks[5] as usize) & mask,
-        ];
-        if self.chr_inversion {
-            slots.copy_from_slice(&[
-                six[4], six[5], six[6], six[7], six[0], six[1], six[2], six[3],
-            ]);
-        } else {
-            slots.copy_from_slice(&six);
-        }
-        (slots[(addr as usize >> 10) & 7] % count) * 0x400 + (addr as usize & 0x3ff)
+        // With inversion the 2 KiB registers move to $1000-$1FFF.
+        let slot = (addr as usize >> 10) & 7;
+        let slot = if self.chr_inversion { slot ^ 4 } else { slot };
+        let bank = match slot {
+            0 => (self.banks[0] & 0xfe) as usize,
+            1 => (self.banks[0] & 0xfe) as usize + 1,
+            2 => (self.banks[1] & 0xfe) as usize,
+            3 => (self.banks[1] & 0xfe) as usize + 1,
+            n => self.banks[n - 2] as usize,
+        } & mask;
+        (bank % count) * 0x400 + (addr as usize & 0x3ff)
     }
 }
 

@@ -44,6 +44,17 @@ Games which have mappers as:
 - Mapper 7 [partial] (AxROM)
 - Mapper 9 (MMC2)
 - Mapper 66 (GxROM)
+- Mapper 11 (Color Dreams)
+- Mapper 34 (BNROM / NINA-001)
+- Mapper 71 (Camerica/Codemasters)
+- Mapper 79 (NINA-03/06)
+- Mapper 87 (Jaleco/Konami CHR latch)
+- Mapper 118 (TxSROM)
+- Mapper 140 [partial] (Jaleco JF-11/14)
+- Mapper 180 (UxROM, fixed first bank)
+- Mapper 206 (DxROM/Namco 108)
+
+Four-screen cartridges (iNES flags 6 bit 3) get 4 KiB of nametable RAM.
 
 Directory: https://nesdir.github.io/
 

@@ -1,6 +1,10 @@
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 
-const MAX_QUEUED_SAMPLES: u32 = 48_000;
+/// Hard cap on queued audio (~200 ms at 48 kHz). The previous cap of a full
+/// second meant a runaway queue could add up to a second of latency.
+const MAX_QUEUED_SAMPLES: u32 = 9_600;
+/// Queue depth the rate controller aims for (~50 ms).
+const TARGET_QUEUED_SAMPLES: f64 = 2_400.0;
 
 pub struct Audio {
     queue: AudioQueue<f32>,
@@ -28,8 +32,21 @@ impl Audio {
         self.sample_rate
     }
 
+    fn queued_samples(&self) -> u32 {
+        self.queue.size() / std::mem::size_of::<f32>() as u32
+    }
+
+    /// Factor to trim the APU's output sample rate by so the queue level
+    /// hovers around the target. The emulated NES (~60.0988 Hz) and the
+    /// host pacing (60 Hz / vsync) never agree exactly; without feedback
+    /// the queue drains (crackle) or fills (latency, then dropped samples).
+    pub fn rate_adjust(&self) -> f64 {
+        let error = (TARGET_QUEUED_SAMPLES - self.queued_samples() as f64) / TARGET_QUEUED_SAMPLES;
+        1.0 + (error * 0.005).clamp(-0.005, 0.005)
+    }
+
     pub fn push_samples(&mut self, samples: &[f32]) {
-        let queued = self.queue.size() / std::mem::size_of::<f32>() as u32;
+        let queued = self.queued_samples();
         let available = MAX_QUEUED_SAMPLES.saturating_sub(queued) as usize;
         if available > 0 {
             if let Err(error) = self

@@ -55,7 +55,9 @@ impl Noise {
             }
 
             3 => {
-                self.length = LENGTH_TABLE[(value >> 3) as usize];
+                if self.enabled {
+                    self.length = LENGTH_TABLE[(value >> 3) as usize];
+                }
 
                 self.envelope_start = true;
             }

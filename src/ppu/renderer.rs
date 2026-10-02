@@ -206,7 +206,10 @@ impl Ppu {
     fn render_sprites(&mut self, y: usize) {
         let height = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
 
-        let mut visible = Vec::with_capacity(8);
+        // At most 8 sprites are drawn per line; fixed storage avoids two
+        // heap allocations per scanline.
+        let mut visible = [0usize; 8];
+        let mut visible_len = 0;
 
         for index in 0..64 {
             let sprite_y = self.oam[index * 4] as i32;
@@ -226,12 +229,13 @@ impl Ppu {
                 // false-negative depending on OAM contents; this is
                 // the intended "more than 8 sprites" behaviour,
                 // which is what well-behaved games expect.)
-                if visible.len() == 8 {
+                if visible_len == 8 {
                     self.status |= 0x20;
                     break;
                 }
 
-                visible.push(index);
+                visible[visible_len] = index;
+                visible_len += 1;
             }
         }
 
@@ -246,6 +250,7 @@ impl Ppu {
         // order afterwards, using these pre-fetched bytes, so
         // on-screen sprite priority (lower OAM index wins overlaps)
         // is unaffected.
+        #[derive(Clone, Copy)]
         struct PreparedSprite {
             index: usize,
             sprite_x: i32,
@@ -256,9 +261,9 @@ impl Ppu {
             p1: u8,
         }
 
-        let mut prepared = Vec::with_capacity(visible.len());
+        let mut prepared: [Option<PreparedSprite>; 8] = [None; 8];
 
-        for &index in visible.iter() {
+        for (slot, &index) in visible[..visible_len].iter().enumerate() {
             let sprite_y = self.oam[index * 4] as i32;
 
             // Same one-scanline delay as in the range check above.
@@ -307,7 +312,7 @@ impl Ppu {
                 .cart
                 .sprite_chr_read(pattern + tile_number as u16 * 16 + row as u16 + 8);
 
-            prepared.push(PreparedSprite {
+            prepared[slot] = Some(PreparedSprite {
                 index,
                 sprite_x,
                 horizontal_flip,
@@ -325,7 +330,7 @@ impl Ppu {
         // in OAM order and claim columns as they are taken.
         let mut claimed = [false; 256];
 
-        for sprite in prepared.iter() {
+        for sprite in prepared.iter().flatten() {
             let index = sprite.index;
             let sprite_x = sprite.sprite_x;
             let horizontal_flip = sprite.horizontal_flip;

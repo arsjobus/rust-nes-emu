@@ -214,3 +214,52 @@ fn nmi_enabled_via_ppuctrl_is_delayed_by_one_instruction() {
     ppu.cpu_write(0, 0x80);
     assert!(ppu.nmi_pending && ppu.nmi_delay);
 }
+
+/// The frontend must be told the frame is done once line 239 is drawn,
+/// not after line 0 of the next frame has already been rendered.
+#[test]
+fn frame_ready_is_raised_after_the_last_visible_line() {
+    let mut ppu = ppu();
+
+    // Power-on is scanline 261; one scanline later we are at line 0.
+    ppu.catch_up(341);
+    assert_eq!(ppu.scanline, 0);
+    assert!(!ppu.frame_ready);
+
+    ppu.catch_up(341 * 239); // now on scanline 239
+    assert_eq!(ppu.scanline, 239);
+    assert!(!ppu.frame_ready);
+
+    ppu.catch_up(341); // line 239 finished -> scanline 240
+    assert_eq!(ppu.scanline, 240);
+    assert!(ppu.frame_ready);
+}
+
+fn write_vram(ppu: &mut Ppu, addr: u16, value: u8) {
+    ppu.cpu_write(6, (addr >> 8) as u8);
+    ppu.cpu_write(6, addr as u8);
+    ppu.cpu_write(7, value);
+}
+
+fn read_vram(ppu: &mut Ppu, addr: u16) -> u8 {
+    ppu.cpu_write(6, (addr >> 8) as u8);
+    ppu.cpu_write(6, addr as u8);
+    let _ = ppu.cpu_read(7); // buffered
+    ppu.cpu_read(7)
+}
+
+/// Four-screen cartridges supply 4 KiB of nametable RAM, so all four
+/// nametables are distinct.
+#[test]
+fn four_screen_cartridge_has_four_distinct_nametables() {
+    use crate::cartridge::test_support::{load_image, raw_ines};
+    let cart = load_image(&raw_ines(1, 1, 0x08, 0)).unwrap();
+    let mut ppu = Ppu::new(cart);
+
+    for (i, base) in [0x2000u16, 0x2400, 0x2800, 0x2c00].iter().enumerate() {
+        write_vram(&mut ppu, *base, 0x10 + i as u8);
+    }
+    for (i, base) in [0x2000u16, 0x2400, 0x2800, 0x2c00].iter().enumerate() {
+        assert_eq!(read_vram(&mut ppu, *base), 0x10 + i as u8);
+    }
+}

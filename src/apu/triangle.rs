@@ -49,7 +49,9 @@ impl Triangle {
             3 => {
                 self.period = (self.period & 0x00ff) | (((value & 7) as u16) << 8);
 
-                self.length = LENGTH_TABLE[(value >> 3) as usize];
+                if self.enabled {
+                    self.length = LENGTH_TABLE[(value >> 3) as usize];
+                }
 
                 self.linear_reload = true;
             }

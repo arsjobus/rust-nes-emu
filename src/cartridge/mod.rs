@@ -46,10 +46,13 @@ pub struct Cartridge {
 
     // Storage for up to 64 KiB of PRG RAM. Non-MMC5 boards use the
     // first 8 KiB; MMC5 selects 8 KiB banks from the larger region.
-    // RAM is not battery-backed and starts zeroed every run.
+    // Battery-backed boards persist the first `save_size` bytes.
     pub(crate) prg_ram: Vec<u8>,
     battery_backed: bool,
+    /// Number of bytes of `prg_ram` written to / read from the `.sav` file.
+    save_size: usize,
     save_path: Option<PathBuf>,
+    four_screen: bool,
 
     #[allow(dead_code)] // Exposed cartridge metadata for callers that inspect loaded ROMs.
     pub mapper_kind: MapperKind,
@@ -98,15 +101,18 @@ impl Cartridge {
         // sizes (non-exponent form) to 12 bits each.
         if nes2 {
             mapper_num |= ((data[8] & 0x0f) as u16) << 8;
-            if data[9] & 0x0f != 0x0f {
-                prg_units |= ((data[9] & 0x0f) as usize) << 8;
+            // 0xF in a size nibble selects exponent-multiplier notation,
+            // which this loader does not implement; reading it as a
+            // plain unit count would silently map the wrong data.
+            if data[9] & 0x0f == 0x0f || data[9] >> 4 == 0x0f {
+                return Err("NES 2.0 exponent-notation ROM sizes are not supported".into());
             }
-            if data[9] >> 4 != 0x0f {
-                chr_units |= ((data[9] >> 4) as usize) << 8;
-            }
+            prg_units |= ((data[9] & 0x0f) as usize) << 8;
+            chr_units |= ((data[9] >> 4) as usize) << 8;
         }
 
         let vertical = flags6 & 1 != 0;
+        let four_screen = flags6 & 8 != 0;
 
         let trainer = flags6 & 4 != 0;
         let battery_backed = flags6 & 2 != 0;
@@ -204,14 +210,40 @@ impl Cartridge {
             prg_size / 1024,
             chr_size / 1024,
             chr_ram,
-            if vertical { "vertical" } else { "horizontal" }
+            if four_screen {
+                "four-screen"
+            } else if vertical {
+                "vertical"
+            } else {
+                "horizontal"
+            }
         );
 
-        let mirroring = mapper.mirroring_override().unwrap_or(if vertical {
-            Mirroring::Vertical
+        let mirroring = if four_screen {
+            Mirroring::FourScreen
         } else {
-            Mirroring::Horizontal
-        });
+            mapper.mirroring_override().unwrap_or(if vertical {
+                Mirroring::Vertical
+            } else {
+                Mirroring::Horizontal
+            })
+        };
+
+        // Size of the battery file. MMC5 boards vary and the header is
+        // often wrong for them, so keep the full window there.
+        let save_size = if matches!(mapper_kind, MapperKind::Mmc5) {
+            PRG_RAM_SIZE
+        } else if nes2 {
+            match data[10] >> 4 {
+                0 => 8192,
+                shift => 64usize << shift,
+            }
+        } else if dirty_header {
+            8192
+        } else {
+            (data[8] as usize).max(1) * 8192
+        }
+        .clamp(8192, PRG_RAM_SIZE);
 
         let mut cartridge = Self {
             prg,
@@ -219,16 +251,22 @@ impl Cartridge {
             chr_ram,
             prg_ram: vec![0; PRG_RAM_SIZE],
             battery_backed,
+            save_size,
             save_path,
+            four_screen,
             mapper_kind,
             mirroring_vertical: mirroring == Mirroring::Vertical,
             mirroring,
             mapper,
         };
+        if trainer {
+            // The 512-byte trainer is mapped at $7000-$71FF.
+            cartridge.prg_ram[0x1000..0x1200].copy_from_slice(&data[16..16 + 512]);
+        }
         if let Some(path) = &cartridge.save_path {
             match fs::read(path) {
                 Ok(saved) => {
-                    let count = saved.len().min(cartridge.prg_ram.len());
+                    let count = saved.len().min(cartridge.save_size);
                     cartridge.prg_ram[..count].copy_from_slice(&saved[..count]);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -250,7 +288,8 @@ impl Cartridge {
         let result = (|| {
             use std::io::Write;
             let mut file = fs::File::create(&temporary).map_err(|e| e.to_string())?;
-            file.write_all(&self.prg_ram).map_err(|e| e.to_string())?;
+            file.write_all(&self.prg_ram[..self.save_size])
+                .map_err(|e| e.to_string())?;
             file.sync_all().map_err(|e| e.to_string())?;
             fs::rename(&temporary, path).map_err(|e| e.to_string())?;
             Ok(())
@@ -335,7 +374,10 @@ impl Cartridge {
                 // mirroring at runtime via a CPU-mapped register
                 // rather than it being fixed by the iNES header,
                 // so re-sync it after every register write.
-                if let Some(mirroring) = self.mapper.mirroring_override() {
+                // (Four-screen boards have fixed mirroring.)
+                if let (false, Some(mirroring)) =
+                    (self.four_screen, self.mapper.mirroring_override())
+                {
                     self.mirroring_vertical = mirroring == Mirroring::Vertical;
                     self.mirroring = mirroring;
                 }
@@ -462,6 +504,41 @@ pub(crate) mod test_support {
         let cart = Cartridge::load(path.to_str().unwrap()).unwrap();
         let _ = std::fs::remove_file(&path);
         cart
+    }
+
+    pub(crate) fn unique_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "runes_img_{}_{}.nes",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst),
+        ))
+    }
+
+    /// Loads raw iNES bytes through the real `Cartridge::load` path.
+    pub(crate) fn load_image(data: &[u8]) -> Result<Cartridge, String> {
+        let path = unique_path();
+        std::fs::write(&path, data).unwrap();
+        let cart = Cartridge::load(path.to_str().unwrap());
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sav"));
+        cart
+    }
+
+    /// A 16-byte iNES header followed by `prg_units` x 16 KiB of zeroes and
+    /// `chr_units` x 8 KiB of zeroes (plus a trainer when flags 6 bit 2 is set).
+    pub(crate) fn raw_ines(prg_units: u8, chr_units: u8, flags6: u8, flags7: u8) -> Vec<u8> {
+        let mut data = vec![0u8; 16];
+        data[0..4].copy_from_slice(b"NES\x1a");
+        data[4] = prg_units;
+        data[5] = chr_units;
+        data[6] = flags6;
+        data[7] = flags7;
+        if flags6 & 4 != 0 {
+            data.extend((0..512).map(|i| (i % 251) as u8 + 1));
+        }
+        data.extend(std::iter::repeat(0).take(prg_units as usize * 0x4000));
+        data.extend(std::iter::repeat(0).take(chr_units as usize * 0x2000));
+        data
     }
 
     /// Builds a throwaway iNES image and loads it through the real
