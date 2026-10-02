@@ -30,3 +30,6 @@ Thumbs.db
 *.profraw
 *.profdata
 coverage/
+
+# Videos
+*.mp4
