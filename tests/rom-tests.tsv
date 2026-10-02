@@ -1,0 +1,14 @@
+# name<TAB>ROM path<TAB>maximum frames
+instr_abs_x_wrap	test-roms/instr_misc/rom_singles/01-abs_x_wrap.nes	1200
+instr_branch_wrap	test-roms/instr_misc/rom_singles/02-branch_wrap.nes	1200
+instr_dummy_reads	test-roms/instr_misc/rom_singles/03-dummy_reads.nes	1200
+ppu_vbl_basics	test-roms/ppu_vbl_nmi/rom_singles/01-vbl_basics.nes	1500
+ppu_vbl_set_time	test-roms/ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes	1500
+ppu_vbl_clear_time	test-roms/ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes	1500
+ppu_nmi_control	test-roms/ppu_vbl_nmi/rom_singles/04-nmi_control.nes	1500
+ppu_nmi_timing	test-roms/ppu_vbl_nmi/rom_singles/05-nmi_timing.nes	1500
+ppu_nmi_suppression	test-roms/ppu_vbl_nmi/rom_singles/06-suppression.nes	1500
+ppu_nmi_on_timing	test-roms/ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes	1500
+ppu_nmi_off_timing	test-roms/ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes	1500
+ppu_even_odd_frames	test-roms/ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes	1500
+ppu_even_odd_timing	test-roms/ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes	1500

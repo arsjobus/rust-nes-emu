@@ -2,6 +2,7 @@
 /roms/*
 !roms/pong.nes
 !roms/README.md
+/test-roms/
 
 # Rust build output
 /target/

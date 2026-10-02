@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a Rust 2024 NES emulator. The application entry point is `src/main.rs`; core machine coordination lives in `src/nes.rs` and `src/bus.rs`. Hardware is split into `src/cpu/`, `src/ppu/`, `src/apu/`, `src/cartridge/`, and `src/input/`. Video output and post-processing are in `src/video.rs` and `src/postprocess/`. There is no separate test or asset directory at present; ROM files are supplied by users and should not be committed.
+This is a Rust 2024 NES emulator. The application entry point is `src/main.rs`; core machine coordination lives in `src/nes.rs` and `src/bus.rs`. Hardware is split into `src/cpu/`, `src/ppu/`, `src/apu/`, `src/cartridge/`, and `src/input/`. Video output and post-processing are in `src/video.rs` and `src/postprocess/`. The automated ROM test list and setup notes are in `tests/`; the downloaded community ROM collection lives in the locally ignored `test-roms/` directory and should not be committed.
 
 ## Build, Test, and Development Commands
 
@@ -10,6 +10,7 @@ This is a Rust 2024 NES emulator. The application entry point is `src/main.rs`; 
 - `cargo build --release` builds the optimized emulator.
 - `cargo run --release -- path/to/game.nes` builds and launches a ROM.
 - `cargo test` runs Rust unit and integration tests (add tests alongside modules or under `tests/` as appropriate).
+- `./scripts/run_rom_tests.sh` runs the community end-to-end ROM suite. This is the primary, definitive check that the assembled emulator works correctly across CPU, PPU, and system timing; use it before considering an emulator build verified. It needs the local ROM collection described in `tests/README.md`.
 - `cargo fmt --check` checks formatting; run `cargo fmt` to apply standard Rust formatting.
 - `cargo clippy --all-targets` reports common Rust correctness and style issues.
 
@@ -19,7 +20,7 @@ Use standard `rustfmt` formatting with four-space indentation. Follow Rust namin
 
 ## Testing Guidelines
 
-The repository currently has no checked-in test suite or stated coverage target. Add focused unit tests for deterministic behavior such as CPU instructions, mapper reads, timing, or post-processing; name tests for the behavior they verify. Run `cargo test` after changes. For changes affecting runtime behavior, also launch a compatible ROM (mappers 0, 2, 9, or 66) when one is available.
+The ROM suite is the primary end-to-end verification: run `./scripts/run_rom_tests.sh` and treat any failing case as an unresolved compatibility issue. Its current automated subset covers ROMs that report results through the standard `$6000` status signature; see `tests/README.md` for coverage limits and ROM acquisition. Add focused unit tests for deterministic behavior such as CPU instructions, mapper reads, timing, or post-processing; name tests for the behavior they verify. Run `cargo test` for Rust tests as a supporting check. For changes affecting runtime behavior, also launch a compatible game ROM when one is available.
 
 ## Commit & Pull Request Guidelines
 

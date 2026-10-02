@@ -44,6 +44,10 @@ fn rom_harness() {
         a += 1;
     }
     println!("RESULT status={last_status:#04x} zp_f8={:#04x}\n{text}", nes.bus.ram[0xf8]);
+    assert_eq!(
+        last_status, 0,
+        "test ROM did not report success (0x00); status was {last_status:#04x}: {text}"
+    );
 }
 
 /// Single-steps the CPU for a while and prints what the program is
