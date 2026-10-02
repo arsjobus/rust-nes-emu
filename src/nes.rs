@@ -32,7 +32,9 @@ impl Nes {
 
     pub fn run_frame(&mut self) {
         while !self.bus.ppu.frame_ready {
+            let start_dot = self.bus.ppu.cycle;
             let mut cycles = self.cpu.step(&mut self.bus);
+            let instruction_cycles = cycles;
 
             // OAM DMA halts the CPU for 513 cycles; during that time
             // the PPU and APU keep running.
@@ -47,12 +49,23 @@ impl Nes {
 
             let mut interrupt_cycles = 0;
 
-            if self.bus.ppu.nmi_pending && self.bus.ppu.nmi_delay {
+            // The CPU polls for NMI one cycle before an instruction
+            // ends; one raised later waits for the next instruction.
+            // Instructions touching the PPU recorded their poll result
+            // at that moment (a $2000/$2002 access may change it).
+            let nmi_taken = self.bus.take_nmi_poll().unwrap_or_else(|| {
+                let poll_dot = start_dot + (instruction_cycles.saturating_sub(1) * 3) as u64;
+                self.bus.ppu.nmi_pending
+                    && self.bus.ppu.nmi_raised_at + Ppu::NMI_POLL_LEAD <= poll_dot
+            });
+
+            if !nmi_taken && self.bus.ppu.nmi_pending && self.bus.ppu.nmi_delay {
                 // NMI raised by enabling it in $2000 during vblank is
                 // taken after the *next* instruction, not this one.
                 self.bus.ppu.nmi_delay = false;
-            } else if self.bus.ppu.nmi_pending {
+            } else if nmi_taken {
                 self.bus.ppu.nmi_pending = false;
+                self.bus.ppu.nmi_delay = false;
 
                 self.bus.apu.debug_event("NMI");
                 interrupt_cycles = self.cpu.nmi(&mut self.bus);

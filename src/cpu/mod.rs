@@ -177,6 +177,9 @@ pub struct Cpu {
     /// Set by the addressing-mode code when an indexed access
     /// crossed a page boundary.
     pub(crate) page_crossed: bool,
+    /// Address of the dummy read the current indexed access performs
+    /// while the CPU fixes up the high byte of the address.
+    pub(crate) dummy_read: Option<u16>,
     /// The I flag as the interrupt poll saw it after the last
     /// instruction. CLI, SEI and PLP change I too late for the poll
     /// at the end of their own execution, so an IRQ is judged against
@@ -198,6 +201,7 @@ impl Cpu {
 
             extra_cycles: 0,
             page_crossed: false,
+            dummy_read: None,
             irq_poll_i: None,
         }
     }
@@ -220,6 +224,7 @@ impl Cpu {
     pub fn step(&mut self, bus: &mut Bus) -> u32 {
         self.extra_cycles = 0;
         self.page_crossed = false;
+        self.dummy_read = None;
 
         let opcode = self.fetch(bus);
 
@@ -228,7 +233,11 @@ impl Cpu {
         let addr = if matches!(instruction.mode, Mode::Imp | Mode::Acc) {
             None
         } else {
-            self.operand(bus, instruction.mode)
+            self.operand(
+                bus,
+                instruction.mode,
+                !instruction.op.has_page_cross_penalty(),
+            )
         };
 
         // Read-type instructions pay one extra cycle when an
@@ -241,12 +250,22 @@ impl Cpu {
 
         let i_before = self.flag(I);
 
-        // The instruction's memory read happens on its last cycle.
-        bus.pre_read_cycles = (instruction.cycles + self.extra_cycles).saturating_sub(1);
+        let total_cycles = instruction.cycles + self.extra_cycles;
+
+        // Indexed accesses read the uncorrected address one cycle before
+        // the real access. Memory-mapped registers such as $2002 see it.
+        if let Some(dummy) = self.dummy_read.take() {
+            bus.set_access_cycle(total_cycles.saturating_sub(2), false);
+            bus.read(dummy);
+        }
+
+        // The instruction's real memory access happens on its last
+        // cycle; the interrupt poll happens at the end of the one before.
+        bus.set_access_cycle(total_cycles.saturating_sub(1), true);
 
         self.execute(bus, instruction, addr);
 
-        bus.pre_read_cycles = 0;
+        bus.set_access_cycle(0, false);
 
         self.irq_poll_i = matches!(instruction.op, Op::Cli | Op::Sei | Op::Plp).then_some(i_before);
 

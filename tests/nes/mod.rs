@@ -53,6 +53,12 @@ fn runs_program_with_prg_ram_and_one_nmi_per_frame() {
 /// instruction, so a poll can see it just before the NMI is taken, and
 /// RTI restores the N flag from that poll.
 ///
+/// Because the CPU only notices an NMI raised before the last cycle of
+/// an instruction, a poll that straddles the vblank edge loses that
+/// frame to the handler. The loop therefore settles into a steady
+/// pattern (about two frames in nine), which is why the run below is
+/// long enough to show repeated progress rather than a stall.
+///
 ///   8000: LDA #$80 ; STA $2000       ; enable NMI
 ///   8005: LDA $2002 ; BPL $8005      ; wait for vblank
 ///   800A: INC $01                    ; one step per vblank seen
@@ -70,13 +76,13 @@ fn vblank_poll_loop_progresses_when_nmi_handler_reads_ppustatus() {
     let cart = make_nrom_program(&code, 0x8020, 0x8000, 0x8000);
     let mut nes = Nes::new(cart);
 
-    for _ in 0..30 {
+    for _ in 0..90 {
         nes.run_frame();
     }
 
     assert!(
         nes.bus.ram[1] >= 10,
-        "main loop stalled: saw vblank only {} times in 30 frames",
+        "main loop stalled: saw vblank only {} times in 90 frames",
         nes.bus.ram[1]
     );
 }

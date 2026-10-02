@@ -10,12 +10,19 @@ pub struct Bus {
     dma_stall: u32,
 
     /// CPU cycles of the running instruction that elapse before its
-    /// memory read. Set by the CPU so a PPU register read can see the
-    /// PPU as it is at that cycle rather than at the start of the
-    /// instruction.
+    /// next memory access. Set by the CPU so a PPU register read or
+    /// write sees the PPU as it is at that cycle rather than at the
+    /// start of the instruction.
     pub(crate) pre_read_cycles: u32,
+    /// True when `pre_read_cycles` is the instruction's final cycle,
+    /// i.e. the one just after the CPU polled for interrupts.
+    poll_cycle: bool,
     /// PPU dots already run ahead inside the current instruction.
     ppu_advanced_dots: i32,
+    /// Whether an NMI was due when the CPU polled during the current
+    /// instruction. Only recorded when the instruction touched the PPU,
+    /// since a register write may change the answer afterwards.
+    nmi_poll: Option<bool>,
 }
 
 impl Bus {
@@ -27,7 +34,35 @@ impl Bus {
             controller,
             dma_stall: 0,
             pre_read_cycles: 0,
+            poll_cycle: false,
             ppu_advanced_dots: 0,
+            nmi_poll: None,
+        }
+    }
+
+    /// Sets the cycle (counted from the start of the running
+    /// instruction) at which the next memory access happens. `poll`
+    /// marks the instruction's final cycle.
+    pub(crate) fn set_access_cycle(&mut self, cycles: u32, poll: bool) {
+        self.pre_read_cycles = cycles;
+        self.poll_cycle = poll;
+    }
+
+    /// Takes (and clears) the NMI poll result recorded mid-instruction.
+    pub fn take_nmi_poll(&mut self) -> Option<bool> {
+        self.nmi_poll.take()
+    }
+
+    /// Brings the PPU up to the cycle of the current access, so that
+    /// register reads and writes land on the right dot.
+    fn sync_ppu_to_access(&mut self) {
+        let target = (self.pre_read_cycles * 3) as i32;
+        if target > self.ppu_advanced_dots {
+            self.ppu.catch_up(target - self.ppu_advanced_dots);
+            self.ppu_advanced_dots = target;
+        }
+        if self.poll_cycle && self.nmi_poll.is_none() {
+            self.nmi_poll = Some(self.ppu.nmi_due());
         }
     }
 
@@ -64,12 +99,7 @@ impl Bus {
                 // Bring the PPU up to the cycle of this read first, so
                 // e.g. a vblank-wait loop sees the flag at the right
                 // moment instead of a whole instruction late.
-                if self.pre_read_cycles > 0 {
-                    let dots = (self.pre_read_cycles * 3) as i32;
-                    self.pre_read_cycles = 0;
-                    self.ppu.catch_up(dots);
-                    self.ppu_advanced_dots += dots;
-                }
+                self.sync_ppu_to_access();
                 self.ppu.cpu_read(addr & 7)
             }
 
@@ -110,6 +140,7 @@ impl Bus {
             }
 
             0x2000..=0x3fff => {
+                self.sync_ppu_to_access();
                 self.ppu.cpu_write(addr & 7, value);
             }
 

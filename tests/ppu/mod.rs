@@ -263,3 +263,112 @@ fn four_screen_cartridge_has_four_distinct_nametables() {
         assert_eq!(read_vram(&mut ppu, *base), 0x10 + i as u8);
     }
 }
+
+/// Runs the PPU dot by dot until it reaches the given position.
+fn run_to(ppu: &mut Ppu, scanline: i16, dot: i32) {
+    for _ in 0..(341 * 262 * 2) {
+        if (ppu.scanline, ppu.dot) == (scanline, dot) {
+            return;
+        }
+        ppu.catch_up(1);
+    }
+    panic!("never reached scanline {scanline} dot {dot}");
+}
+
+/// A $2002 read on the dot before the flag would be set returns clear,
+/// and the flag and its NMI are skipped for the whole frame.
+#[test]
+fn status_read_just_before_vblank_suppresses_flag_and_nmi() {
+    let mut ppu = ppu();
+    ppu.cpu_write(0, 0x80);
+    run_to(&mut ppu, 240, 340);
+
+    assert_eq!(ppu.cpu_read(2) & 0x80, 0);
+    ppu.catch_up(10);
+
+    assert_eq!(ppu.status & 0x80, 0);
+    assert!(!ppu.nmi_pending);
+}
+
+/// A $2002 read on the dot the flag is set sees it, but takes the
+/// NMI away.
+#[test]
+fn status_read_as_vblank_begins_returns_flag_but_suppresses_nmi() {
+    let mut ppu = ppu();
+    ppu.cpu_write(0, 0x80);
+    run_to(&mut ppu, 241, 0);
+    assert!(ppu.nmi_pending);
+
+    assert_eq!(ppu.cpu_read(2) & 0x80, 0x80);
+
+    assert!(!ppu.nmi_pending);
+}
+
+/// Two dots later the NMI is already latched and survives the read.
+#[test]
+fn status_read_two_dots_after_vblank_keeps_nmi() {
+    let mut ppu = ppu();
+    ppu.cpu_write(0, 0x80);
+    run_to(&mut ppu, 241, 2);
+
+    assert_eq!(ppu.cpu_read(2) & 0x80, 0x80);
+
+    assert!(ppu.nmi_pending);
+}
+
+/// An NMI raised during the last cycle of an instruction is too late
+/// for that instruction's interrupt poll.
+#[test]
+fn nmi_raised_after_the_poll_point_is_not_due() {
+    let mut ppu = ppu();
+    ppu.cpu_write(0, 0x80);
+    run_to(&mut ppu, 241, 0);
+    assert!(!ppu.nmi_due(), "polling at the very dot it is raised");
+
+    ppu.catch_up(Ppu::NMI_POLL_LEAD as i32);
+    assert!(ppu.nmi_due());
+}
+
+#[test]
+fn enabling_nmi_on_last_dot_of_vblank_is_too_late() {
+    let mut ppu = ppu();
+    ppu.status |= 0x80;
+    run_to(&mut ppu, 260, 340);
+
+    ppu.cpu_write(0, 0x80);
+
+    assert!(!ppu.nmi_pending);
+}
+
+/// Total dots in the frame that starts at the pre-render line.
+fn frame_dots(ppu: &mut Ppu) -> u64 {
+    run_to(ppu, 0, 0);
+    let start = ppu.cycle;
+    run_to(ppu, 261, 0);
+    run_to(ppu, 0, 0);
+    ppu.cycle - start
+}
+
+/// With background rendering on, every other frame is one dot short.
+#[test]
+fn odd_frames_are_one_dot_shorter_with_background_enabled() {
+    let mut ppu = ppu();
+    ppu.mask = 0x08;
+
+    let a = frame_dots(&mut ppu);
+    let b = frame_dots(&mut ppu);
+
+    assert_eq!(a.max(b), 341 * 262);
+    assert_eq!(a.min(b), 341 * 262 - 1);
+}
+
+#[test]
+fn frames_keep_full_length_with_rendering_off_or_sprites_only() {
+    for mask in [0x00, 0x10] {
+        let mut ppu = ppu();
+        ppu.mask = mask;
+
+        assert_eq!(frame_dots(&mut ppu), 341 * 262);
+        assert_eq!(frame_dots(&mut ppu), 341 * 262);
+    }
+}

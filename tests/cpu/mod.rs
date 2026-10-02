@@ -211,3 +211,64 @@ fn irq_still_fires_one_instruction_after_sei() {
     cpu.step(&mut bus); // SEI
     assert!(cpu.irq(&mut bus));
 }
+
+/// Loads from an indexed address that crosses a page first read the
+/// address with the uncorrected high byte.
+#[test]
+fn indexed_load_dummy_reads_before_carry_is_applied() {
+    let (mut cpu, mut bus) = setup();
+    // LDA $20E0,X with X = $22 reads $2002 (dummy), then $2102.
+    load_program(&mut cpu, &mut bus, 0x0000, &[0xbd, 0xe0, 0x20]);
+    cpu.x = 0x22;
+    bus.ppu.status |= 0x80;
+
+    assert_eq!(cpu.step(&mut bus), 5);
+
+    assert_eq!(
+        bus.ppu.status & 0x80,
+        0,
+        "dummy read of $2002 clears vblank"
+    );
+    assert_eq!(cpu.a, 0, "the real read of $2102 sees the cleared flag");
+}
+
+#[test]
+fn indexed_load_without_page_cross_reads_once() {
+    let (mut cpu, mut bus) = setup();
+    load_program(&mut cpu, &mut bus, 0x0000, &[0xbd, 0x00, 0x20]);
+    cpu.x = 0x02;
+    bus.ppu.status |= 0x80;
+
+    assert_eq!(cpu.step(&mut bus), 4);
+
+    assert_eq!(cpu.a & 0x80, 0x80);
+}
+
+/// Stores always make the dummy read, even without a page cross.
+#[test]
+fn indexed_store_always_dummy_reads() {
+    let (mut cpu, mut bus) = setup();
+    // STA $2000,X with X = 2 writes $2002 but also dummy-reads it.
+    load_program(&mut cpu, &mut bus, 0x0000, &[0x9d, 0x00, 0x20]);
+    cpu.x = 0x02;
+    bus.ppu.status |= 0x80;
+
+    assert_eq!(cpu.step(&mut bus), 5);
+
+    assert_eq!(bus.ppu.status & 0x80, 0);
+}
+
+#[test]
+fn indirect_indexed_load_dummy_reads_on_page_cross() {
+    let (mut cpu, mut bus) = setup();
+    // LDA ($10),Y with pointer $20E0 and Y = $22.
+    bus.write(0x0010, 0xe0);
+    bus.write(0x0011, 0x20);
+    load_program(&mut cpu, &mut bus, 0x0000, &[0xb1, 0x10]);
+    cpu.y = 0x22;
+    bus.ppu.status |= 0x80;
+
+    assert_eq!(cpu.step(&mut bus), 6);
+
+    assert_eq!(bus.ppu.status & 0x80, 0);
+}

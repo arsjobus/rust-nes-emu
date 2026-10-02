@@ -34,6 +34,16 @@ pub struct Ppu {
     /// The pending NMI was raised by a $2000 write. Hardware takes
     /// it after the *next* instruction rather than immediately.
     pub(crate) nmi_delay: bool,
+    /// Absolute dot (`cycle`) at which the pending NMI was raised. The
+    /// CPU only sees an NMI that was raised before it polled for
+    /// interrupts, one cycle before the end of an instruction.
+    pub(crate) nmi_raised_at: u64,
+    /// A $2002 read landed on the dot just before the vblank flag
+    /// would have been set; the flag (and its NMI) is skipped.
+    pub(crate) vbl_suppressed: bool,
+    /// The frame in progress is an odd one. With background rendering
+    /// enabled the pre-render line of an odd frame is one dot shorter.
+    pub(crate) odd_frame: bool,
 
     /// Absolute PPU dot counter (monotonic), used to time A12 edges.
     pub(crate) cycle: u64,
@@ -77,6 +87,9 @@ impl Ppu {
             frame_ready: false,
             nmi_pending: false,
             nmi_delay: false,
+            nmi_raised_at: 0,
+            vbl_suppressed: false,
+            odd_frame: false,
 
             cycle: 0,
             a12: false,
@@ -198,6 +211,20 @@ impl Ppu {
     pub fn cpu_read(&mut self, register: u16) -> u8 {
         match register {
             2 => {
+                match (self.scanline, self.dot) {
+                    // Read on the dot just before the flag would be set:
+                    // it reads clear and the flag never gets set, so
+                    // no NMI is raised for this frame either.
+                    (240, 340) => self.vbl_suppressed = true,
+                    // Read on the dot the flag is set or the one after:
+                    // it reads set but suppresses the NMI.
+                    (241, 0..=1) => {
+                        self.nmi_pending = false;
+                        self.nmi_delay = false;
+                    }
+                    _ => {}
+                }
+
                 let result = self.status & 0xe0;
 
                 self.status &= 0x7f;
@@ -250,8 +277,15 @@ impl Ppu {
                     // by the CPU is cancelled.
                     self.nmi_pending = false;
                     self.nmi_delay = false;
-                } else if !nmi_was_enabled && self.status & 0x80 != 0 {
+                } else if !nmi_was_enabled
+                    && self.status & 0x80 != 0
+                    // The flag is cleared one dot earlier as far as the NMI
+                    // enable is concerned: enabling on the last dot of
+                    // vblank is already too late to raise an NMI.
+                    && (self.scanline, self.dot) != (260, 340)
+                {
                     self.nmi_delay = true;
+                    self.nmi_raised_at = self.cycle;
                     // Enabling NMI (0 -> 1) while the vblank flag
                     // is already set raises an NMI immediately,
                     // even mid-vblank. Games that don't read
@@ -344,9 +378,42 @@ impl Ppu {
         v
     }
 
+    /// How many dots before the start of an instruction's last cycle
+    /// an NMI must have been raised for the CPU's interrupt poll
+    /// (taken just before the bus access of that cycle) to see it.
+    pub(crate) const NMI_POLL_LEAD: u64 = 2;
+
+    /// Whether an NMI is pending and was raised in time for a CPU
+    /// interrupt poll that happens at the current dot.
+    pub(crate) fn nmi_due(&self) -> bool {
+        self.nmi_pending && self.nmi_raised_at + Self::NMI_POLL_LEAD <= self.cycle
+    }
+
+    /// Dot count on the pre-render line at which an odd frame decides
+    /// whether to drop its last dot. Hardware decides around dot 339;
+    /// this is expressed in this emulator's convention (`dot` counts
+    /// completed dots, CPU accesses land on cycle boundaries), and is
+    /// pinned down to exactly one value by `ppu_even_odd_timing`.
+    const ODD_FRAME_SKIP_DOT: i32 = 336;
+
     pub fn catch_up(&mut self, mut dots: i32) {
         while dots > 0 {
-            let space = 341 - self.dot;
+            if self.scanline == 261
+                && self.odd_frame
+                && self.dot == Self::ODD_FRAME_SKIP_DOT
+                && self.mask & 0x08 != 0
+            {
+                // Background rendering is on: the line ends one dot early.
+                self.dot += 1;
+            }
+
+            let mut space = 341 - self.dot;
+
+            if self.scanline == 261 && self.odd_frame && self.dot < Self::ODD_FRAME_SKIP_DOT {
+                // Stop at the decision point so a later $2001 write
+                // can still change the outcome.
+                space = space.min(Self::ODD_FRAME_SKIP_DOT - self.dot);
+            }
 
             let step = space.min(dots);
 
@@ -407,6 +474,7 @@ impl Ppu {
 
         if self.scanline > 261 {
             self.scanline = 0;
+            self.odd_frame = !self.odd_frame;
             self.cart.ppu_frame_start();
         }
 
@@ -429,11 +497,16 @@ impl Ppu {
             }
 
             241 => {
-                self.status |= 0x80;
+                if self.vbl_suppressed {
+                    self.vbl_suppressed = false;
+                } else {
+                    self.status |= 0x80;
 
-                if self.ctrl & 0x80 != 0 {
-                    self.nmi_pending = true;
-                    self.nmi_delay = false;
+                    if self.ctrl & 0x80 != 0 {
+                        self.nmi_pending = true;
+                        self.nmi_delay = false;
+                        self.nmi_raised_at = self.cycle;
+                    }
                 }
             }
 
