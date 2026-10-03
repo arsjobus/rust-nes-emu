@@ -24,6 +24,11 @@ pub struct Ppu {
 
     pub(crate) read_buffer: u8,
 
+    /// PPU I/O bus latch ("open bus") and the dot at which each of its
+    /// bits was last driven. Undriven bits decay to 0 after a while.
+    open_bus: u8,
+    open_bus_refreshed: [u64; 8],
+
     pub(crate) scanline: i16,
     pub(crate) dot: i32,
 
@@ -51,6 +56,10 @@ pub struct Ppu {
     pub(crate) a12: bool,
     /// `cycle` at which A12 last went low.
     pub(crate) a12_low_since: u64,
+
+    /// Dot of the current scanline at which sprite evaluation (for the
+    /// next line) sets the sprite overflow flag.
+    pub(crate) overflow_dot: Option<i32>,
 
     pub(crate) sprite0_col: Option<usize>,
     pub(crate) sprite0_flagged: bool,
@@ -81,6 +90,9 @@ impl Ppu {
 
             read_buffer: 0,
 
+            open_bus: 0,
+            open_bus_refreshed: [0; 8],
+
             scanline: 261,
             dot: 0,
 
@@ -95,12 +107,55 @@ impl Ppu {
             a12: false,
             a12_low_since: 0,
 
+            overflow_dot: None,
+
             sprite0_col: None,
             sprite0_flagged: true,
 
             bg_opaque: [0; 256],
 
             framebuffer: vec![0; WIDTH * HEIGHT],
+        }
+    }
+
+    /// Warm reset: control registers, the address latch and the read
+    /// buffer are cleared; VRAM, OAM, palette and the vblank flag stay.
+    #[cfg(test)]
+    pub fn reset(&mut self) {
+        self.ctrl = 0;
+        self.mask = 0;
+        self.w = 0;
+        self.t = 0;
+        self.x = 0;
+        self.read_buffer = 0;
+        self.nmi_pending = false;
+        self.nmi_delay = false;
+        self.odd_frame = false;
+    }
+
+    /// Roughly 0.6 s of PPU dots: how long an undriven bit of the I/O
+    /// latch keeps its value.
+    const OPEN_BUS_DECAY_DOTS: u64 = 3_220_000;
+
+    /// Current value of the I/O latch with decayed bits cleared.
+    fn open_bus_value(&self) -> u8 {
+        let mut value = self.open_bus;
+        for bit in 0..8 {
+            if self.cycle.saturating_sub(self.open_bus_refreshed[bit]) > Self::OPEN_BUS_DECAY_DOTS {
+                value &= !(1 << bit);
+            }
+        }
+        value
+    }
+
+    /// Drives the bits selected by `mask` of the latch to `value`.
+    fn drive_open_bus(&mut self, value: u8, mask: u8) {
+        let decayed = self.open_bus_value();
+        self.open_bus = (decayed & !mask) | (value & mask);
+        for bit in 0..8 {
+            if mask & (1 << bit) != 0 {
+                self.open_bus_refreshed[bit] = self.cycle;
+            }
         }
     }
 
@@ -225,15 +280,30 @@ impl Ppu {
                     _ => {}
                 }
 
-                let result = self.status & 0xe0;
+                // Only the top three bits are driven; the rest is the
+                // I/O latch.
+                let status = self.status & 0xe0;
+                let result = status | (self.open_bus_value() & 0x1f);
 
                 self.status &= 0x7f;
                 self.w = 0;
+                self.drive_open_bus(status, 0xe0);
 
                 result
             }
 
-            4 => self.oam[self.oam_addr as usize],
+            4 => {
+                let mut value = self.oam[self.oam_addr as usize];
+
+                // Bits 2-4 of a sprite's attribute byte do not exist.
+                if self.oam_addr & 3 == 2 {
+                    value &= 0xe3;
+                }
+
+                self.drive_open_bus(value, 0xff);
+
+                value
+            }
 
             7 => {
                 let addr = self.v & 0x3fff;
@@ -246,10 +316,17 @@ impl Ppu {
                     result = self.read_buffer;
 
                     self.read_buffer = self.internal_read(addr);
+
+                    self.drive_open_bus(result, 0xff);
                 } else {
-                    result = self.internal_read(addr);
+                    // Palette reads drive only the low six bits; the
+                    // buffer is filled from the nametable underneath.
+                    let palette = self.internal_read(addr) & 0x3f;
+                    result = palette | (self.open_bus_value() & 0xc0);
 
                     self.read_buffer = self.internal_read(addr.wrapping_sub(0x1000));
+
+                    self.drive_open_bus(palette, 0x3f);
                 }
 
                 self.v = self.v.wrapping_add(if self.ctrl & 4 != 0 { 32 } else { 1 }) & 0x7fff;
@@ -258,11 +335,15 @@ impl Ppu {
                 result
             }
 
-            _ => 0,
+            // Write-only registers read back the I/O latch.
+            _ => self.open_bus_value(),
         }
     }
 
     pub fn cpu_write(&mut self, register: u16, value: u8) {
+        // Every write to a PPU register drives the whole I/O latch.
+        self.drive_open_bus(value, 0xff);
+
         match register {
             0 => {
                 let nmi_was_enabled = self.ctrl & 0x80 != 0;
@@ -451,6 +532,15 @@ impl Ppu {
                 }
             }
 
+            if let Some(threshold) = self.overflow_dot {
+                if old_dot <= threshold && threshold < self.dot {
+                    self.overflow_dot = None;
+                    if self.mask & 0x18 != 0 {
+                        self.status |= 0x20;
+                    }
+                }
+            }
+
             if self.scanline >= 0 && self.scanline < 240 && !self.sprite0_flagged {
                 if let Some(column) = self.sprite0_col {
                     let threshold = column as i32 + 2;
@@ -487,6 +577,9 @@ impl Ppu {
                 self.sprite0_flagged = true;
 
                 self.render_scanline(self.scanline as usize);
+
+                // Evaluation for the next line happens during this one.
+                self.overflow_dot = self.overflow_set_dot(self.scanline as i32 + 1);
             }
 
             // The picture is complete once line 239 has been drawn. Signal
@@ -511,6 +604,7 @@ impl Ppu {
             }
 
             261 => {
+                self.overflow_dot = None;
                 self.status &= !0x80;
                 self.status &= !0x40;
                 self.status &= !0x20;

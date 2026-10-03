@@ -21,9 +21,22 @@ impl Nes {
         let mut bus = Bus::new(ppu, controller);
 
         let mut cpu = Cpu::new();
-        cpu.reset(&mut bus);
+        cpu.power_on(&mut bus);
 
         Self { cpu, bus }
+    }
+
+    /// Warm reset (the console's RESET button): CPU, APU and PPU
+    /// registers are reset, RAM and cartridge state are kept.
+    #[cfg(test)]
+    pub fn reset(&mut self) {
+        self.bus.apu.reset();
+        self.bus.ppu.reset();
+        self.bus.reset_timing();
+        self.cpu.reset(&mut self.bus);
+        // The reset sequence itself lasts seven CPU cycles for the PPU
+        // (the APU frame sequencer accounts for it in its head start).
+        self.bus.ppu.catch_up(7 * 3);
     }
 
     pub fn save_battery_ram(&self) -> Result<(), String> {
@@ -45,7 +58,10 @@ impl Nes {
             let already = self.bus.take_ppu_advanced();
             self.bus.ppu.catch_up((cycles * 3) as i32 - already);
 
-            self.bus.clock_apu(cycles);
+            // Cycles already run inside the instruction (APU register
+            // accesses) must not be counted twice either.
+            let apu_done = self.bus.take_apu_advanced();
+            self.bus.clock_apu(cycles.saturating_sub(apu_done));
 
             let mut interrupt_cycles = 0;
 

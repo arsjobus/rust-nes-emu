@@ -103,7 +103,9 @@ impl Cpu {
         if matches!(mode, Mode::Acc) {
             self.a
         } else {
-            bus.read(addr.expect("memory operand requires address"))
+            let value = bus.read(addr.expect("memory operand requires address"));
+            self.last_load = value;
+            value
         }
     }
 
@@ -116,6 +118,12 @@ impl Cpu {
                 // Only read-modify-write instructions store through
                 // here; on cartridge space they double-write.
                 bus.write_rmw(addr, value);
+            } else if addr >= 0x2000 {
+                // Device registers see the unmodified value written
+                // back first, then the new one (e.g. INC $2006 writes
+                // the address latch twice).
+                bus.write(addr, self.last_load);
+                bus.write(addr, value);
             } else {
                 bus.write(addr, value);
             }

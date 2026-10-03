@@ -81,6 +81,7 @@ fn eight_sprites_on_a_line_do_not_set_overflow() {
     ppu.render_scanline(50);
 
     assert_eq!(ppu.status & 0x20, 0);
+    assert_eq!(ppu.overflow_set_dot(50), None);
     // All eight are still drawn.
     for i in 0..8 {
         assert_eq!(pixel(&ppu, i * 10, 50), SPRITE_RGB);
@@ -99,9 +100,32 @@ fn nine_sprites_on_a_line_set_overflow() {
 
     ppu.render_scanline(50);
 
-    assert_ne!(ppu.status & 0x20, 0);
+    // The flag is raised by sprite evaluation during the previous
+    // line, so the renderer itself no longer touches it.
+    assert!(ppu.overflow_set_dot(50).is_some());
     assert_eq!(pixel(&ppu, 70, 50), SPRITE_RGB, "8th sprite drawn");
     assert_eq!(pixel(&ppu, 80, 50), BACKDROP_RGB, "9th sprite dropped");
+}
+
+/// Hardware bug: after eight sprites are found, the PPU compares the
+/// wrong OAM byte of later entries. A ninth in-range sprite whose Y
+/// byte is not the one being compared is missed; a non-Y byte that
+/// happens to look in range is a false positive.
+#[test]
+fn overflow_search_reproduces_the_diagonal_bug() {
+    let mut ppu = ppu_with_solid_sprite_tile();
+    hide_all_sprites(&mut ppu);
+    for i in 0..8 {
+        set_sprite(&mut ppu, i, 49, (i * 10) as u8);
+    }
+    // Entry 8 is compared on byte 0, entry 9 on byte 1 (the tile).
+    // A genuinely in-range ninth sprite at entry 9 is missed ...
+    set_sprite(&mut ppu, 9, 49, 0);
+    assert_eq!(ppu.overflow_set_dot(50), None);
+    // ... while a tile number that looks in range on entry 9 hits.
+    ppu.oam[9 * 4] = 200;
+    ppu.oam[9 * 4 + 1] = 49;
+    assert!(ppu.overflow_set_dot(50).is_some());
 }
 
 /// Sprites on different lines must not count toward overflow.

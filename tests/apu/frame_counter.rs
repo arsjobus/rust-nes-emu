@@ -31,7 +31,7 @@ fn run(fc: &mut FrameCounter, ch: &mut Channels, cycles: u32) {
 fn four_step_mode_raises_irq_once_per_29830_cycles() {
     let mut fc = FrameCounter::new();
     let mut ch = channels();
-    run(&mut fc, &mut ch, 29_828);
+    run(&mut fc, &mut ch, 29_827);
     assert!(!fc.irq_flag);
     run(&mut fc, &mut ch, 1);
     assert!(fc.irq_flag);

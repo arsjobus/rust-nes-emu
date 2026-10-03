@@ -203,6 +203,50 @@ impl Ppu {
         }
     }
 
+    /// Dot at which sprite evaluation for scanline `line` raises the
+    /// sprite overflow flag, if it does. This reproduces the hardware's
+    /// buggy search: once eight sprites have been found, the PPU keeps
+    /// scanning OAM but increments the byte offset within each entry
+    /// together with the entry number, so it compares the wrong bytes
+    /// (tile, attribute, X) against the scanline for most entries,
+    /// giving both false positives and false negatives.
+    pub(crate) fn overflow_set_dot(&self, line: i32) -> Option<i32> {
+        let height = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
+        let in_range = |value: u8| (0..height).contains(&(line - (value as i32 + 1)));
+
+        // Evaluation runs on dots 65-256, one OAM byte per two dots;
+        // copying an in-range sprite takes three more reads.
+        let mut dot = 65;
+        let mut found = 0;
+        let mut n = 0usize;
+
+        while n < 64 && found < 8 {
+            if in_range(self.oam[n * 4]) {
+                found += 1;
+                dot += 8;
+            } else {
+                dot += 2;
+            }
+            n += 1;
+        }
+
+        if found < 8 {
+            return None;
+        }
+
+        let mut m = 0usize;
+        while n < 64 {
+            if in_range(self.oam[n * 4 + m]) {
+                return Some(dot);
+            }
+            dot += 2;
+            n += 1;
+            m = (m + 1) & 3;
+        }
+
+        None
+    }
+
     fn render_sprites(&mut self, y: usize) {
         let height = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
 
@@ -221,16 +265,9 @@ impl Ppu {
             let row = y as i32 - (sprite_y + 1);
 
             if row >= 0 && row < height {
-                // Only 8 sprites fit on a scanline. Finding a
-                // *ninth* in range is what sets the overflow flag;
-                // the flag must not be raised by a line that has
-                // exactly eight sprites. (Real hardware's overflow
-                // check is famously buggy and can false-positive /
-                // false-negative depending on OAM contents; this is
-                // the intended "more than 8 sprites" behaviour,
-                // which is what well-behaved games expect.)
+                // Only 8 sprites fit on a scanline; the overflow flag
+                // is handled separately (see `overflow_set_dot`).
                 if visible_len == 8 {
-                    self.status |= 0x20;
                     break;
                 }
 

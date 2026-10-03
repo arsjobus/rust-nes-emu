@@ -125,6 +125,9 @@ pub enum Op {
     Axs,
     Shx,
     Shy,
+    /// AHX/TAS: unstable store opcodes. Only their operand bytes and
+    /// cycle count are modelled; they never pay a page-cross penalty.
+    Unstable,
 }
 
 impl Op {
@@ -185,6 +188,9 @@ pub struct Cpu {
     /// at the end of their own execution, so an IRQ is judged against
     /// the *old* value and takes effect one instruction later.
     irq_poll_i: Option<bool>,
+    /// Value most recently loaded from memory; read-modify-write
+    /// instructions write it back before the modified value.
+    pub(crate) last_load: u8,
 }
 
 impl Cpu {
@@ -203,22 +209,35 @@ impl Cpu {
             page_crossed: false,
             dummy_read: None,
             irq_poll_i: None,
+            last_load: 0,
         }
     }
 
-    pub fn reset(&mut self, bus: &mut Bus) {
-        let lo = bus.read(0xfffc);
-
-        let hi = bus.read(0xfffd);
-
-        self.pc = u16::from_le_bytes([lo, hi]);
-
-        self.sp = 0xfd;
-        self.status = 0x24;
-
+    /// Power-on state: registers cleared, SP = $FD, I set.
+    pub fn power_on(&mut self, bus: &mut Bus) {
         self.a = 0;
         self.x = 0;
         self.y = 0;
+        self.sp = 0xfd;
+        self.status = 0x24;
+        self.irq_poll_i = None;
+        self.load_reset_vector(bus);
+    }
+
+    /// Warm reset (RESET pin): registers keep their values, SP drops by
+    /// three (the stack writes are suppressed) and I is set.
+    #[cfg(test)]
+    pub fn reset(&mut self, bus: &mut Bus) {
+        self.sp = self.sp.wrapping_sub(3);
+        self.status |= I;
+        self.irq_poll_i = None;
+        self.load_reset_vector(bus);
+    }
+
+    fn load_reset_vector(&mut self, bus: &mut Bus) {
+        let lo = bus.read(0xfffc);
+        let hi = bus.read(0xfffd);
+        self.pc = u16::from_le_bytes([lo, hi]);
     }
 
     pub fn step(&mut self, bus: &mut Bus) -> u32 {

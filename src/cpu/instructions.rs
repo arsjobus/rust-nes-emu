@@ -221,7 +221,7 @@ impl Cpu {
                 self.zn(result);
             }
 
-            Nop => {}
+            Nop | Unstable => {}
 
             Ora => {
                 self.a |= self.load(bus, instruction.mode, addr);
@@ -803,8 +803,8 @@ pub fn opcode_info(opcode: u8) -> Instruction {
         // licensed game depends on their results.
         0x8b => Instruction::new(Nop, Imm, 2),
         0xab => Instruction::new(Lax, Imm, 2),
-        0x93 => Instruction::new(Nop, Indy, 6),
-        0x9f | 0x9b => Instruction::new(Nop, Absy, 5),
+        0x93 => Instruction::new(Unstable, Indy, 6),
+        0x9f | 0x9b => Instruction::new(Unstable, Absy, 5),
         0x9e => Instruction::new(Shx, Absy, 5),
         0x9c => Instruction::new(Shy, Absx, 5),
         0xbb => Instruction::new(Nop, Absy, 4),

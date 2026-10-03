@@ -137,6 +137,8 @@ impl Dmc {
         } else if self.remaining == 0 {
             self.restart();
         }
+
+        self.request_fetch_if_needed();
     }
 
     // Diagnostic snapshot, used by the NES_DEBUG_DMC trace.
@@ -162,6 +164,15 @@ impl Dmc {
         self.remaining = self.sample_length;
     }
 
+    /// The memory reader fetches a byte as soon as the sample buffer is
+    /// empty and bytes remain (when playback starts, and the moment the
+    /// output unit takes the buffer), not on the next timer tick.
+    fn request_fetch_if_needed(&mut self) {
+        if self.sample_buffer.is_none() && self.remaining > 0 && self.pending_fetch.is_none() {
+            self.pending_fetch = Some(self.current_address);
+        }
+    }
+
     // Called once per APU cycle (i.e. every other CPU cycle),
     // matching how pulse/noise timers are clocked in `Apu`.
     pub(super) fn clock_timer(&mut self) {
@@ -175,16 +186,10 @@ impl Dmc {
         // (= the table's CPU-cycle rate) between output updates.
         self.timer = self.period.saturating_sub(1);
 
-        // Refill the sample buffer from CPU memory if it's empty
-        // and there's still sample data left to fetch. We can only
-        // have one outstanding request at a time; `Bus::clock_apu`
-        // services it every cycle, so in practice it's satisfied
-        // well before it's needed again.
-        if self.sample_buffer.is_none() && self.remaining > 0 && self.pending_fetch.is_none() {
-            self.pending_fetch = Some(self.current_address);
-        }
-
         self.clock_shifter();
+
+        // `Bus::clock_apu` services the request right away.
+        self.request_fetch_if_needed();
     }
 
     fn clock_shifter(&mut self) {

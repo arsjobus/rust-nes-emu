@@ -199,7 +199,7 @@ impl Apu {
             noise: Noise::new(),
             dmc: Dmc::new(),
 
-            frame_counter: FrameCounter::new(),
+            frame_counter: FrameCounter::power_on(),
 
             cpu_cycle: 0,
             sample_rate: DEFAULT_SAMPLE_RATE,
@@ -242,6 +242,15 @@ impl Apu {
         self.output_filter = OutputFilter::new(sample_rate);
     }
 
+    /// Warm reset: all channels are silenced as if $4015 were written
+    /// with 0, the frame IRQ flag is cleared and the frame counter
+    /// restarts as if the last value written to $4017 were written again.
+    #[cfg(test)]
+    pub fn reset(&mut self) {
+        self.set_enable(0);
+        self.frame_counter.reset();
+    }
+
     pub fn cpu_read(&mut self, addr: u16) -> u8 {
         match addr {
             0x4015 => {
@@ -261,6 +270,11 @@ impl Apu {
             }
             _ => 0,
         }
+    }
+
+    /// CPU cycles clocked so far (its parity is the APU's phase).
+    pub fn cycle_count(&self) -> u64 {
+        self.cpu_cycle
     }
 
     pub fn debug_event(&mut self, label: &str) {
@@ -366,7 +380,7 @@ impl Apu {
                     eprintln!("[dmc]   -> {}", self.dmc.debug_state());
                 }
             }
-            0x4017 => self.frame_counter.write(value),
+            0x4017 => self.frame_counter.write_at(value, self.cpu_cycle),
             _ => {}
         }
     }

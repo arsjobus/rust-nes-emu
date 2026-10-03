@@ -10,6 +10,8 @@ fn rom_harness() {
     let cart = Cartridge::load(&path).unwrap();
     let mut nes = Nes::new(cart);
     let mut last_status = 0xffu8;
+    // Status $81 means "press the reset button now" (apu_reset, cpu_reset).
+    let mut reset_requested = false;
     for f in 0..frames {
         nes.run_frame();
         let sig = [
@@ -20,6 +22,18 @@ fn rom_harness() {
         if sig == [0xde, 0xb0, 0x61] {
             let st = nes.bus.read(0x6000);
             last_status = st;
+            if st == 0x81 && !reset_requested {
+                reset_requested = true;
+                // The ROMs ask for the reset to happen within ~100 ms.
+                for _ in 0..6 {
+                    nes.run_frame();
+                }
+                nes.reset();
+                continue;
+            }
+            if st != 0x81 {
+                reset_requested = false;
+            }
             if st != 0x80 && st != 0x81 {
                 println!("frame {f}: status {st:#04x}");
                 break;
@@ -64,7 +78,8 @@ fn hang_report(nes: &mut Nes) {
         let cycles = nes.cpu.step(&mut nes.bus) + nes.bus.take_dma_stall();
         let already = nes.bus.take_ppu_advanced();
         nes.bus.ppu.catch_up((cycles * 3) as i32 - already);
-        nes.bus.clock_apu(cycles);
+        let apu_done = nes.bus.take_apu_advanced();
+        nes.bus.clock_apu(cycles.saturating_sub(apu_done));
         if nes.bus.ppu.nmi_pending && !nes.bus.ppu.nmi_delay {
             nes.bus.ppu.nmi_pending = false;
             let c = nes.cpu.nmi(&mut nes.bus);

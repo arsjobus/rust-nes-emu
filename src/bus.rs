@@ -19,6 +19,11 @@ pub struct Bus {
     poll_cycle: bool,
     /// PPU dots already run ahead inside the current instruction.
     ppu_advanced_dots: i32,
+    /// APU cycles already run ahead inside the current instruction.
+    apu_advanced_cycles: u32,
+    /// Last value driven on the CPU data bus. Reads of unmapped or
+    /// write-only locations return it ("open bus").
+    open_bus: u8,
     /// Whether an NMI was due when the CPU polled during the current
     /// instruction. Only recorded when the instruction touched the PPU,
     /// since a register write may change the answer afterwards.
@@ -36,6 +41,8 @@ impl Bus {
             pre_read_cycles: 0,
             poll_cycle: false,
             ppu_advanced_dots: 0,
+            apu_advanced_cycles: 0,
+            open_bus: 0,
             nmi_poll: None,
         }
     }
@@ -46,6 +53,17 @@ impl Bus {
     pub(crate) fn set_access_cycle(&mut self, cycles: u32, poll: bool) {
         self.pre_read_cycles = cycles;
         self.poll_cycle = poll;
+    }
+
+    /// Forgets any in-flight instruction timing (used by warm reset).
+    #[cfg(test)]
+    pub(crate) fn reset_timing(&mut self) {
+        self.dma_stall = 0;
+        self.pre_read_cycles = 0;
+        self.poll_cycle = false;
+        self.ppu_advanced_dots = 0;
+        self.apu_advanced_cycles = 0;
+        self.nmi_poll = None;
     }
 
     /// Takes (and clears) the NMI poll result recorded mid-instruction.
@@ -71,6 +89,24 @@ impl Bus {
         std::mem::take(&mut self.ppu_advanced_dots)
     }
 
+    /// Brings the APU up to the cycle of the current access so that
+    /// register reads and writes (length counters, frame IRQ, $4017
+    /// restarts) land on the right cycle rather than at the start of
+    /// the instruction.
+    fn sync_apu_to_access(&mut self) {
+        let target = self.pre_read_cycles;
+        if target > self.apu_advanced_cycles {
+            let cycles = target - self.apu_advanced_cycles;
+            self.apu_advanced_cycles = target;
+            self.clock_apu(cycles);
+        }
+    }
+
+    /// Takes (and clears) the APU cycles already executed mid-instruction.
+    pub fn take_apu_advanced(&mut self) -> u32 {
+        std::mem::take(&mut self.apu_advanced_cycles)
+    }
+
     /// Takes (and clears) the CPU stall cycles accumulated by OAM DMA.
     pub fn take_dma_stall(&mut self) -> u32 {
         std::mem::take(&mut self.dma_stall)
@@ -92,6 +128,16 @@ impl Bus {
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
+        let value = self.read_unlatched(addr);
+        // Reading $4015 is internal to the CPU and leaves the external
+        // data bus untouched.
+        if addr != 0x4015 {
+            self.open_bus = value;
+        }
+        value
+    }
+
+    fn read_unlatched(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1fff => self.ram[(addr & 0x07ff) as usize],
 
@@ -103,13 +149,22 @@ impl Bus {
                 self.ppu.cpu_read(addr & 7)
             }
 
-            0x4000..=0x4015 => self.apu.cpu_read(addr),
+            // Write-only APU registers are not driven on reads.
+            0x4000..=0x4014 => self.open_bus,
 
-            0x4016 => self.controller.read(),
+            0x4015 => {
+                self.sync_apu_to_access();
+                // Bit 5 is not driven by the APU.
+                self.apu.cpu_read(addr) | (self.open_bus & 0x20)
+            }
 
-            0x4017 => self.apu.cpu_read(addr),
+            // Only the low bits come from the controller port; the
+            // rest float at whatever was last on the bus.
+            0x4016 => (self.open_bus & 0xe0) | (self.controller.read() & 0x1f),
 
-            0x4018..=0x401f => 0,
+            0x4017 => (self.open_bus & 0xe0) | 0x00,
+
+            0x4018..=0x401f => self.open_bus,
 
             0x5000..=0x5015 => self.apu.cpu_read(addr),
 
@@ -134,6 +189,8 @@ impl Bus {
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
+        self.open_bus = value;
+
         match addr {
             0x0000..=0x1fff => {
                 self.ram[(addr & 0x07ff) as usize] = value;
@@ -156,10 +213,14 @@ impl Bus {
                     self.ppu.oam[(self.ppu.oam_addr as usize + i) & 255] = temp[i];
                 }
 
-                self.dma_stall += 513;
+                // 513 cycles, plus one alignment cycle when the transfer
+                // starts on an odd CPU cycle.
+                self.sync_apu_to_access();
+                self.dma_stall += 513 + (self.apu.cycle_count() & 1) as u32;
             }
 
             0x4000..=0x4015 => {
+                self.sync_apu_to_access();
                 self.apu.cpu_write(addr, value);
             }
 
@@ -170,6 +231,7 @@ impl Bus {
             }
 
             0x4017 => {
+                self.sync_apu_to_access();
                 self.apu.cpu_write(addr, value);
             }
 
