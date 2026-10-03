@@ -10,6 +10,11 @@ pub struct Ppu {
 
     pub(crate) vram: [u8; 4096],
     pub(crate) palette: [u8; 32],
+    /// The program has written the universal background colour
+    /// (`$3F00`/`$3F10`). Until then the picture shows black instead of
+    /// the power-up value in `palette[0]`, which is a dark green and would
+    /// flash on screen while a game boots with rendering still disabled.
+    pub(crate) backdrop_written: bool,
     pub(crate) oam: [u8; 256],
 
     pub(crate) ctrl: u8,
@@ -85,6 +90,7 @@ impl Ppu {
 
             vram: [0; 4096],
             palette: Self::POWER_UP_PALETTE,
+            backdrop_written: false,
             oam: [0; 256],
 
             ctrl: 0,
@@ -229,7 +235,11 @@ impl Ppu {
                 self.vram[index] = value;
             }
         } else {
-            self.palette[Self::palette_index(addr)] = value & 0x3f;
+            let index = Self::palette_index(addr);
+            self.palette[index] = value & 0x3f;
+            if index == 0 {
+                self.backdrop_written = true;
+            }
         }
     }
 

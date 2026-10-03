@@ -85,7 +85,13 @@ impl Ppu {
 
         let sprites_enabled = self.mask & 0x10 != 0;
 
-        let backdrop = self.system_color(self.palette[0]);
+        // Show black (not the green power-up entry) until the program has
+        // chosen a backdrop colour of its own.
+        let backdrop = self.system_color(if self.backdrop_written {
+            self.palette[0]
+        } else {
+            0x0f
+        });
 
         if !background_enabled {
             for x in 0..256 {

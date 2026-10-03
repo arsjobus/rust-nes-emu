@@ -380,3 +380,22 @@ fn palette_starts_with_the_documented_power_up_values() {
     assert_eq!(ppu.palette[0], 0x09);
     assert_eq!(ppu.palette[31], 0x08);
 }
+
+#[test]
+fn backdrop_is_black_until_the_program_writes_it() {
+    let mut ppu = ppu();
+    // Power-up palette RAM is still readable (and dark green)...
+    assert_eq!(ppu.palette[0], 0x09);
+    // ...but it is not shown while the game boots with rendering off.
+    ppu.render_scanline(0);
+    assert_eq!(ppu.framebuffer[0] & 0x00ff_ffff, 0);
+
+    // Writing the mirror at $3F10 also sets the universal backdrop.
+    ppu.internal_write(0x3f10, 0x21);
+    ppu.render_scanline(0);
+    let (r, g, b) = crate::ppu::renderer::NES_PALETTE[0x21];
+    assert_eq!(
+        ppu.framebuffer[0] & 0x00ff_ffff,
+        ((r as u32) << 16) | ((g as u32) << 8) | b as u32
+    );
+}

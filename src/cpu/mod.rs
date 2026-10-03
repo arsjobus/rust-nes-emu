@@ -125,9 +125,15 @@ pub enum Op {
     Axs,
     Shx,
     Shy,
-    /// AHX/TAS: unstable store opcodes. Only their operand bytes and
-    /// cycle count are modelled; they never pay a page-cross penalty.
-    Unstable,
+    /// AHX (SHA): store `A & X & (H + 1)`. Stores never pay a page-cross
+    /// penalty.
+    Ahx,
+    /// TAS (SHS): `SP = A & X`, then store `SP & (H + 1)`.
+    Tas,
+    /// LAS: `A = X = SP = memory & SP`.
+    Las,
+    /// XAA (ANE): `A = (A | $FF) & X & immediate`.
+    Xaa,
 }
 
 impl Op {
@@ -147,6 +153,7 @@ impl Op {
                 | Op::Sbc
                 | Op::Nop
                 | Op::Lax
+                | Op::Las
         )
     }
 }

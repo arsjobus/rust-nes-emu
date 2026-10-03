@@ -125,3 +125,73 @@ fn hang_report(nes: &mut Nes) {
     }
     println!();
 }
+
+/// Runs `nestest.nes` in automation mode (PC=$C000) and compares CPU state
+/// and cycle count after every instruction with the reference `nestest.log`
+/// (official and unofficial opcodes). Usage:
+/// `cargo test nestest_log -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn nestest_log() {
+    let rom = std::env::var("NESTEST_ROM").unwrap_or_else(|_| "test-roms/other/nestest.nes".into());
+    let log_path =
+        std::env::var("NESTEST_LOG").unwrap_or_else(|_| "test-roms/other/nestest.log".into());
+    let log = std::fs::read_to_string(log_path).expect("nestest.log");
+    let mut nes = Nes::new(Cartridge::load(&rom).unwrap());
+    nes.cpu.pc = 0xc000;
+    nes.cpu.sp = 0xfd;
+    nes.cpu.status = 0x24;
+    let mut cycles = 7u64;
+    let mut mismatches = 0;
+    for (n, line) in log.lines().enumerate() {
+        let field = |name: &str| -> u32 {
+            let i = line.find(name).unwrap() + name.len();
+            let end = line[i..].find(' ').map_or(line.len(), |e| i + e);
+            let radix = if name == "CYC:" { 10 } else { 16 };
+            u32::from_str_radix(line[i..end].trim(), radix).unwrap()
+        };
+        let pc = u32::from_str_radix(&line[0..4], 16).unwrap();
+        let expect = (
+            pc,
+            field("A:"),
+            field("X:"),
+            field("Y:"),
+            field("P:"),
+            field("SP:"),
+        );
+        let got = (
+            nes.cpu.pc as u32,
+            nes.cpu.a as u32,
+            nes.cpu.x as u32,
+            nes.cpu.y as u32,
+            nes.cpu.status as u32,
+            nes.cpu.sp as u32,
+        );
+        if expect != got || field("CYC:") as u64 != cycles {
+            println!("line {}: {}", n + 1, line);
+            println!(
+                "   got PC={:04X} A={:02X} X={:02X} Y={:02X} P={:02X} SP={:02X} CYC={}",
+                got.0, got.1, got.2, got.3, got.4, got.5, cycles
+            );
+            mismatches += 1;
+            if mismatches >= 10 {
+                break;
+            }
+            // Resynchronise so one bug does not hide the next.
+            nes.cpu.a = expect.1 as u8;
+            nes.cpu.x = expect.2 as u8;
+            nes.cpu.y = expect.3 as u8;
+            nes.cpu.status = expect.4 as u8;
+            nes.cpu.sp = expect.5 as u8;
+            nes.cpu.pc = expect.0 as u16;
+            cycles = field("CYC:") as u64;
+        }
+        cycles += nes.cpu.step(&mut nes.bus) as u64;
+    }
+    println!(
+        "nestest result: $02={:02X} $03={:02X}",
+        nes.bus.ram[2], nes.bus.ram[3]
+    );
+    assert_eq!(mismatches, 0, "trace differs from nestest.log");
+    assert_eq!((nes.bus.ram[2], nes.bus.ram[3]), (0, 0));
+}

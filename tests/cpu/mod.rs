@@ -275,3 +275,67 @@ fn indirect_indexed_load_dummy_reads_on_page_cross() {
 
     assert_eq!(bus.ppu.status & 0x80, 0);
 }
+
+#[test]
+fn xaa_ands_x_with_the_immediate() {
+    let (mut cpu, mut bus) = setup();
+    // XAA #$f0
+    load_program(&mut cpu, &mut bus, 0x0000, &[0x8b, 0xf0]);
+    cpu.a = 0x00;
+    cpu.x = 0x3c;
+    assert_eq!(cpu.step(&mut bus), 2);
+    assert_eq!(cpu.a, 0x30);
+    assert!(!cpu.flag(Z) && !cpu.flag(N));
+}
+
+#[test]
+fn las_loads_a_x_and_sp_with_memory_and_sp() {
+    let (mut cpu, mut bus) = setup();
+    // LAS $0110,Y
+    load_program(&mut cpu, &mut bus, 0x0000, &[0xbb, 0x10, 0x01]);
+    bus.write(0x0111, 0xf3);
+    cpu.y = 0x01;
+    cpu.sp = 0x8f;
+    assert_eq!(cpu.step(&mut bus), 4);
+    assert_eq!((cpu.a, cpu.x, cpu.sp), (0x83, 0x83, 0x83));
+    assert!(cpu.flag(N));
+}
+
+#[test]
+fn ahx_stores_a_and_x_and_the_high_byte_plus_one() {
+    // AHX ($10),Y without a page cross: value = A & X & (H + 1).
+    let (mut cpu, mut bus) = setup();
+    load_program(&mut cpu, &mut bus, 0x0200, &[0x93, 0x10]);
+    bus.write(0x0010, 0x00);
+    bus.write(0x0011, 0x03);
+    cpu.a = 0xff;
+    cpu.x = 0x0f;
+    cpu.y = 0x05;
+    assert_eq!(cpu.step(&mut bus), 6);
+    assert_eq!(bus.read(0x0305), 0x04 & 0x0f);
+
+    // AHX $05F0,Y (opcode $9F) with a page cross: the stored value
+    // (A & X & (H + 1) = $03 & $06 = $02) also replaces the high byte of
+    // the target address, so the write lands at $0210, not $0610.
+    let (mut cpu, mut bus) = setup();
+    load_program(&mut cpu, &mut bus, 0x0300, &[0x9f, 0xf0, 0x05]);
+    cpu.a = 0xff;
+    cpu.x = 0x03;
+    cpu.y = 0x20;
+    assert_eq!(cpu.step(&mut bus), 5);
+    assert_eq!(bus.read(0x0210), 0x02);
+    assert_eq!(bus.read(0x0610), 0x00, "no store at the uncorrected page");
+}
+
+#[test]
+fn tas_sets_sp_to_a_and_x_and_stores_it_masked() {
+    let (mut cpu, mut bus) = setup();
+    // TAS $0300,Y
+    load_program(&mut cpu, &mut bus, 0x0200, &[0x9b, 0x00, 0x03]);
+    cpu.a = 0xf3;
+    cpu.x = 0x3f;
+    cpu.y = 0x02;
+    assert_eq!(cpu.step(&mut bus), 5);
+    assert_eq!(cpu.sp, 0x33);
+    assert_eq!(bus.read(0x0302), 0x33 & 0x04);
+}

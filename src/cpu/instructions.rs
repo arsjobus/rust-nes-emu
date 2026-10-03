@@ -221,7 +221,7 @@ impl Cpu {
                 self.zn(result);
             }
 
-            Nop | Unstable => {}
+            Nop => {}
 
             Ora => {
                 self.a |= self.load(bus, instruction.mode, addr);
@@ -479,6 +479,33 @@ impl Cpu {
 
             Shy => {
                 self.store_high_and(bus, addr.unwrap(), self.y);
+            }
+
+            Ahx => {
+                self.store_high_and(bus, addr.unwrap(), self.a & self.x);
+            }
+
+            Tas => {
+                self.sp = self.a & self.x;
+                self.store_high_and(bus, addr.unwrap(), self.sp);
+            }
+
+            Las => {
+                let value = self.load(bus, instruction.mode, addr) & self.sp;
+
+                self.a = value;
+                self.x = value;
+                self.sp = value;
+
+                self.zn(value);
+            }
+
+            Xaa => {
+                // The analogue "magic" constant is taken as $FF, the value
+                // most emulators and the nesdev wiki use.
+                self.a = self.x & self.load(bus, instruction.mode, addr);
+
+                self.zn(self.a);
             }
 
             Axs => {
@@ -797,17 +824,17 @@ pub fn opcode_info(opcode: u8) -> Instruction {
         0x6b => Instruction::new(Arr, Imm, 2),
         0xcb => Instruction::new(Axs, Imm, 2),
 
-        // Unstable opcodes. LXA/SHX/SHY are implemented (with the
-        // common "magic" behaviour); XAA, AHX, TAS and LAS just
-        // consume the right number of operand bytes, since no
-        // licensed game depends on their results.
-        0x8b => Instruction::new(Nop, Imm, 2),
+        // Unstable opcodes, implemented with the common "magic constant
+        // $FF" behaviour (XAA, LXA) and the usual `(H + 1)` masking for
+        // the stores (AHX, TAS, SHX, SHY).
+        0x8b => Instruction::new(Xaa, Imm, 2),
         0xab => Instruction::new(Lax, Imm, 2),
-        0x93 => Instruction::new(Unstable, Indy, 6),
-        0x9f | 0x9b => Instruction::new(Unstable, Absy, 5),
+        0x93 => Instruction::new(Ahx, Indy, 6),
+        0x9f => Instruction::new(Ahx, Absy, 5),
+        0x9b => Instruction::new(Tas, Absy, 5),
         0x9e => Instruction::new(Shx, Absy, 5),
         0x9c => Instruction::new(Shy, Absx, 5),
-        0xbb => Instruction::new(Nop, Absy, 4),
+        0xbb => Instruction::new(Las, Absy, 4),
 
         // JAM/KIL and anything else: single-byte NOP.
         _ => Instruction::new(Op::Nop, Imp, 2),

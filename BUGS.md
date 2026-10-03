@@ -1,6 +1,6 @@
 # Bug tracker
 
-Open issues found by the community ROM regression suite. Re-run `./scripts/run_rom_tests.sh` from the repository root after fixes. The list below reflects the run on 2026-10-03 (updated after the ROM sweep described under BUG-020 to BUG-024); ROM output is recorded so failures can be compared after changes.
+Open issues found by the community ROM regression suite. Re-run `./scripts/run_rom_tests.sh` from the repository root after fixes. The list below reflects the run on 2026-10-03 (updated after the ROM sweep described under BUG-020 to BUG-024, and the follow-up sweep under BUG-025 and BUG-026); ROM output is recorded so failures can be compared after changes.
 
 ## Open
 
@@ -28,12 +28,7 @@ Open issues found by the community ROM regression suite. Re-run `./scripts/run_r
 - **ROM output:** status `0x02`.
 - **Cause:** The renderer is scanline-based, so A12 edges are not produced on the exact dots of sprite/background fetches. `6-MMC6` and `6-MMC3_alt` fail by design: `5-MMC3` and `6-MMC3_alt` are mutually exclusive revisions, and this emulator implements the MMC3 behaviour. The same split shows in `mmc3_irq_tests`: 1-4 and 6 pass, `5.MMC3_rev_A` fails with `#3` (rev A vs rev B IRQ behaviour), while the older `4.Scanline_timing` passes.
 
-### OPEN-005: Unofficial opcodes that are only stubbed (found by code review, no ROM fails)
-
-- `$93` (AHX/SHA indirect,Y), `$9F` (AHX absolute,Y) and `$9B` (TAS) do nothing except consume cycles: no store happens and TAS never sets SP.
-- `$BB` (LAS) and `$8B` (XAA) are treated as NOPs. Their results are analog-dependent or rarely used, so this only matters for completeness.
-
-### OPEN-006: Reset is not reachable from the application
+### OPEN-005: Reset is not reachable from the application
 
 - `Cpu::reset`, `Nes::reset`, `Apu::reset`, `Ppu::reset` and `Bus::reset_timing` are `#[cfg(test)]`, so the shipped binary has no warm-reset path. The ROM harness uses them; the frontend does not.
 
@@ -43,6 +38,14 @@ Open issues found by the community ROM regression suite. Re-run `./scripts/run_r
 - **Dot-accurate PPU writes:** `scanline/scanline.nes` shows errors in every area; it needs mid-scanline `$2001/$2000/$2005/$2006` effects that a scanline renderer cannot produce.
 - **Mappers:** `m22chrbankingtest`, `other/test28.nes` and `other/Streemerz_bundle.nes` stop with "Unsupported mapper 22/28".
 - **`dmc_tests`** (`status`, `status_irq`, `latency`, `buffer_retained`) report only by beeps; the harness cannot score them yet, so they end in a `JMP *` loop with a blank screen and no verdict.
+
+### Follow-up sweep (2026-10-03, second pass)
+
+The whole `nes-test-roms` collection (263 ROMs) and `nestest` were run after BUG-025 and BUG-026. Nothing new failed beyond the OPEN items above:
+
+- All 41 manifest ROMs and all 50 `instr_test-v3`, `instr_test-v5`, `nes_instr_test`, `instr_misc` and `instr_timing` ROMs report status `0x00`.
+- Screen-reporting ROMs read from a frame dump pass: `sprite_hit_tests` (11), `vbl_nmi_timing` (7), `branch_timing_tests` (3), `cpu_timing_test6`, `blargg_nes_cpu_test5` (`official.nes` and `cpu.nes`, which needs about 2500 frames), `cpu_dummy_reads`, the `blargg_ppu_tests` (`$01`), and `mmc3_irq_tests` 1-4 and 6.
+- `nestest` matches `nestest.log` for PC, A, X, Y, P, SP and cycle count on every line (run `cargo test nestest_log -- --ignored --nocapture`).
 
 ## Fixed
 
@@ -152,3 +155,14 @@ Open issues found by the community ROM regression suite. Re-run `./scripts/run_r
 
 - **ROM output (before):** screen `$02`.
 - **Fix:** palette RAM starts with the commonly documented power-on table (`Ppu::POWER_UP_PALETTE`, `src/ppu/mod.rs`). Real consoles vary; the ROM's own readme says its table is probably unique to the author's unit.
+
+### BUG-025: Green flash at start-up (regression from BUG-024)
+
+- **Symptom:** the first frames of most games (for example `roms/pong.nes`, frames 0 and 1 were `0x083a00`) showed dark green before the game's own picture appeared.
+- **Cause:** BUG-024 started palette RAM at the power-on table, whose entry 0 (`$09`) is a dark green. Games keep rendering off during boot, so the renderer drew that backdrop until the game wrote `$3F00`.
+- **Fix:** `Ppu::backdrop_written` is set by the first write to `$3F00`/`$3F10`; until then the picture shows black (`$0F`). Palette RAM itself is unchanged, so `power_up_palette` still passes (`src/ppu/mod.rs`, `src/ppu/renderer.rs`). Unit test added.
+
+### BUG-026: AHX, TAS, LAS and XAA were stubs (found by code review; formerly OPEN-005)
+
+- **Fix:** `$93`/`$9F` (AHX) store `A & X & (H+1)`, `$9B` (TAS) sets `SP = A & X` and stores `SP & (H+1)`, `$BB` (LAS) sets `A = X = SP = mem & SP`, and `$8B` (XAA) sets `A = X & imm` (magic constant `$FF`). The stores replace the target's high byte on a page cross, like SHX/SHY. Cycle counts are unchanged (BUG-017), LAS pays the usual page-cross cycle (`src/cpu/mod.rs`, `src/cpu/instructions.rs`). Unit tests added for each. Real hardware results of XAA and the AHX/TAS masking vary between consoles, so the common-emulator behaviour is used.
+- **Tooling:** added the ignored `nestest_log` test (`src/rom_harness.rs`) that compares every `nestest.log` line.
