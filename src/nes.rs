@@ -60,7 +60,18 @@ impl Nes {
 
             // Cycles already run inside the instruction (APU register
             // accesses) must not be counted twice either.
-            let apu_done = self.bus.take_apu_advanced();
+            let mut apu_done = self.bus.take_apu_advanced();
+
+            // The CPU samples the IRQ line before the instruction's
+            // final cycle, so a frame IRQ raised on that last cycle is
+            // only taken after the next instruction. Run the APU up to
+            // the poll point, sample, then finish the instruction.
+            let poll_at = instruction_cycles.saturating_sub(1);
+            if apu_done < poll_at {
+                self.bus.clock_apu(poll_at - apu_done);
+                apu_done = poll_at;
+            }
+            let apu_irq_polled = self.bus.apu.irq_line_polled();
             self.bus.clock_apu(cycles.saturating_sub(apu_done));
 
             let mut interrupt_cycles = 0;
@@ -85,7 +96,7 @@ impl Nes {
 
                 self.bus.apu.debug_event("NMI");
                 interrupt_cycles = self.cpu.nmi(&mut self.bus);
-            } else if (self.bus.apu.irq_line() || self.bus.ppu.cart.irq_pending())
+            } else if (apu_irq_polled || self.bus.ppu.cart.irq_pending())
                 && self.cpu.irq(&mut self.bus)
             {
                 // Level-triggered APU and mapper IRQ lines. Ignored while the

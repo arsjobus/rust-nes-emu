@@ -85,6 +85,21 @@ impl FrameCounter {
         self.cycle = Self::RESET_HEAD_START;
     }
 
+    /// Whether the next call to `clock` will clock the length
+    /// counters (a half-frame step).
+    pub(super) fn half_frame_next(&self) -> bool {
+        if self.write_delay > 0 {
+            return self.write_delay == 1 && self.pending_mode_5;
+        }
+        let next = self.cycle + 1;
+        match next {
+            14913 => true,
+            29829 => !self.mode_5,
+            37281 => self.mode_5,
+            _ => false,
+        }
+    }
+
     pub(super) fn clock(
         &mut self,
         p1: &mut Pulse,

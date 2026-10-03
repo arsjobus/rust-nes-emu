@@ -1,15 +1,16 @@
 # Bug tracker
 
-Open issues found by the community ROM regression suite. Re-run `./scripts/run_rom_tests.sh` from the repository root after fixes. The list below reflects the run on 2026-10-03; ROM output is recorded so failures can be compared after changes.
+Open issues found by the community ROM regression suite. Re-run `./scripts/run_rom_tests.sh` from the repository root after fixes. The list below reflects the run on 2026-10-03 (updated after the ROM sweep described under BUG-020 to BUG-024); ROM output is recorded so failures can be compared after changes.
 
 ## Open
 
 `./scripts/run_rom_tests.sh` passes all 41 ROMs in `tests/rom-tests.tsv` as of 2026-10-03. The ROMs below, from the same collection, still fail. Status codes are the `$6000` result unless noted.
 
-### OPEN-001: DMC DMA does not steal CPU cycles (`sprdma_and_dmc_dma`, `sprdma_and_dmc_dma_512`)
+### OPEN-001: DMC DMA only approximates the hardware (`sprdma_and_dmc_dma`, `sprdma_and_dmc_dma_512`, `dmc_dma_during_read4`)
 
-- **ROM output:** status `0x01`.
-- **Cause:** DMC sample fetches are serviced instantly in `Bus::clock_apu`; the CPU is never stalled (3-4 cycles per fetch, plus the OAM DMA interaction). Needed for exact `cpu_interrupts_v2/4-irq_and_dma` as well.
+- **ROM output:** `sprdma_and_dmc_dma` and `_512` status `0x01` (the clock table prints 528/529 alternating; the `_512` variant 528/529 as well). `dmc_dma_during_read4`: `dma_4016_read` prints "Failed"; `dma_2007_read`, `dma_2007_write` and `double_2007_read` print the wrong values; `read_write_2007` passes.
+- **Status:** each DMC fetch now stalls the CPU for 4 cycles (BUG-020), but that is the common-case average only.
+- **Cause:** The halt, dummy-read and alignment cycles are not modelled individually. Real hardware (a) takes fewer extra cycles when the fetch lands inside an OAM DMA, and (b) repeats the CPU's current read during the halt cycles, which double-clocks `$2007`/`$4016` reads. An attempt to special-case "2 cycles inside an OAM DMA" changed only the `_512` numbers and was reverted because it could not be verified. Needed for exact `cpu_interrupts_v2/4-irq_and_dma` as well.
 
 ### OPEN-002: Interrupt polling is instruction-granular (`cpu_interrupts_v2` 2, 3, 4, 5)
 
@@ -25,12 +26,23 @@ Open issues found by the community ROM regression suite. Re-run `./scripts/run_r
 ### OPEN-004: MMC3 scanline timing (`mmc3_test/4-scanline_timing`, `mmc3_test_2/4-scanline_timing`)
 
 - **ROM output:** status `0x02`.
-- **Cause:** The renderer is scanline-based, so A12 edges are not produced on the exact dots of sprite/background fetches. `6-MMC6` and `6-MMC3_alt` fail by design: `5-MMC3` and `6-MMC3_alt` are mutually exclusive revisions, and this emulator implements the MMC3 behaviour.
+- **Cause:** The renderer is scanline-based, so A12 edges are not produced on the exact dots of sprite/background fetches. `6-MMC6` and `6-MMC3_alt` fail by design: `5-MMC3` and `6-MMC3_alt` are mutually exclusive revisions, and this emulator implements the MMC3 behaviour. The same split shows in `mmc3_irq_tests`: 1-4 and 6 pass, `5.MMC3_rev_A` fails with `#3` (rev A vs rev B IRQ behaviour), while the older `4.Scanline_timing` passes.
 
-### OPEN-005: Length counter write/halt timing (`blargg_apu_2005.07.30` 08, 10, 11)
+### OPEN-005: Unofficial opcodes that are only stubbed (found by code review, no ROM fails)
 
-- **ROM output (screen, `$01` = pass):** `08.irq_timing` `$02`, `10.len_halt_timing` `$03`, `11.len_reload_timing` `$04`. The other eight ROMs in the set show `$01`.
-- **Cause:** A length-counter reload ignored when it lands on the same cycle as a length clock, a halt-flag change taking effect one cycle late, and the exact IRQ-line timing are not modelled.
+- `$93` (AHX/SHA indirect,Y), `$9F` (AHX absolute,Y) and `$9B` (TAS) do nothing except consume cycles: no store happens and TAS never sets SP.
+- `$BB` (LAS) and `$8B` (XAA) are treated as NOPs. Their results are analog-dependent or rarely used, so this only matters for completeness.
+
+### OPEN-006: Reset is not reachable from the application
+
+- `Cpu::reset`, `Nes::reset`, `Apu::reset`, `Ppu::reset` and `Bus::reset_timing` are `#[cfg(test)]`, so the shipped binary has no warm-reset path. The ROM harness uses them; the frontend does not.
+
+### Limitations seen in the wider ROM collection (not bugs per the README's scope)
+
+- **PAL:** `pal_apu_tests` 01-03 pass and 04-11 fail (NTSC timing only).
+- **Dot-accurate PPU writes:** `scanline/scanline.nes` shows errors in every area; it needs mid-scanline `$2001/$2000/$2005/$2006` effects that a scanline renderer cannot produce.
+- **Mappers:** `m22chrbankingtest`, `other/test28.nes` and `other/Streemerz_bundle.nes` stop with "Unsupported mapper 22/28".
+- **`dmc_tests`** (`status`, `status_irq`, `latency`, `buffer_retained`) report only by beeps; the harness cannot score them yet, so they end in a `JMP *` loop with a blank screen and no verdict.
 
 ## Fixed
 
@@ -116,3 +128,27 @@ Open issues found by the community ROM regression suite. Re-run `./scripts/run_r
 ### BUG-019: CPU bus open bus not modelled
 
 - **Fix:** Reads of `$4000-$4014`, `$4018-$401F`, `$4015` bit 5 and the upper bits of `$4016/$4017` return the last value on the data bus (`src/bus.rs`).
+
+### BUG-020: DMC sample fetches did not stall the CPU
+
+- **Fix:** every DMC fetch adds 4 CPU cycles to the DMA stall (`Bus::DMC_DMA_STALL`, `src/bus.rs`). This is the common-case cost; see OPEN-001 for what is still approximate. No manifest ROM changed result.
+
+### BUG-021: Halt-flag writes took effect immediately (`blargg_apu_2005.07.30/10.len_halt_timing`)
+
+- **ROM output (before):** screen `$03` (halting on the same cycle as a length clock must be too late).
+- **Fix:** pulse, triangle and noise keep a separate `length_halt` that follows the `$4000/$4004/$4008/$400C` halt bit one clock later, after the length clock of the following cycle (`apply_halt`, called from `Apu::step_cycle`). The envelope-loop flag is unaffected.
+
+### BUG-022: Length reload on a length-clock cycle was not special-cased (`blargg_apu_2005.07.30/11.len_reload_timing`)
+
+- **ROM output (before):** screen `$04`.
+- **Fix:** a `$4003/$4007/$400B/$400F` (and MMC5 `$5003/$5007`) write that lands on the cycle before a half-frame step is ignored if the counter was non-zero; if it was zero the reload happens but that step does not clock it (`write_timed`, `FrameCounter::half_frame_next`, `src/apu/`).
+
+### BUG-023: Frame IRQ was taken one cycle too early (`blargg_apu_2005.07.30/08.irq_timing`)
+
+- **ROM output (before):** screen `$02` (handler entered 29832 cycles after the `$4017` write; hardware needs at least 29833).
+- **Fix:** the CPU's interrupt poll now samples the APU IRQ line before the instruction's last cycle and sees it one cycle late (`Apu::irq_line_polled`, `src/nes.rs`). Before, the line was read after the whole instruction had run.
+
+### BUG-024: Palette RAM started zeroed (`blargg_ppu_tests_2005.09.15b/power_up_palette`)
+
+- **ROM output (before):** screen `$02`.
+- **Fix:** palette RAM starts with the commonly documented power-on table (`Ppu::POWER_UP_PALETTE`, `src/ppu/mod.rs`). Real consoles vary; the ROM's own readme says its table is probably unique to the author's unit.

@@ -31,6 +31,9 @@ pub struct Bus {
 }
 
 impl Bus {
+    /// CPU cycles stolen by one DMC sample fetch.
+    const DMC_DMA_STALL: u32 = 4;
+
     pub fn new(ppu: Ppu, controller: Controller) -> Self {
         Self {
             ram: [0; 2048],
@@ -117,12 +120,13 @@ impl Bus {
             self.apu.step_cycle();
 
             if let Some(addr) = self.apu.take_pending_dmc_fetch() {
-                // Real hardware briefly stalls the CPU for this
-                // read (DMA on the same bus); we don't model that
-                // stall, just the byte transfer itself, which is
-                // what actually produces correct sample audio.
+                // The DMC steals the bus from the CPU for this read.
+                // The common case costs the CPU four cycles (the
+                // halt/dummy/alignment cycles are not modelled
+                // individually).
                 let byte = self.read(addr);
                 self.apu.feed_dmc_byte(byte);
+                self.dma_stall += Self::DMC_DMA_STALL;
             }
         }
     }

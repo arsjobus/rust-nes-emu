@@ -10,6 +10,10 @@ pub(super) struct Pulse {
     period: u16,
 
     pub(super) length: u8,
+    /// Halt flag as the length counter sees it (delayed one clock).
+    length_halt: bool,
+    halt_pending: Option<bool>,
+    skip_length_clock: bool,
 
     volume: u8,
     constant_volume: bool,
@@ -42,6 +46,9 @@ impl Pulse {
             period: 0,
 
             length: 0,
+            length_halt: false,
+            halt_pending: None,
+            skip_length_clock: false,
 
             volume: 0,
             constant_volume: false,
@@ -74,6 +81,7 @@ impl Pulse {
             0 => {
                 self.duty = ((value >> 6) & 3) as usize;
                 self.envelope_loop = value & 0x20 != 0;
+                self.halt_pending = Some(value & 0x20 != 0);
                 self.constant_volume = value & 0x10 != 0;
                 self.volume = value & 0x0f;
             }
@@ -109,6 +117,27 @@ impl Pulse {
         }
     }
 
+    /// Applies a halt-flag write made on an earlier cycle. The flag
+    /// changes one clock after the write, i.e. after the length
+    /// clock of the cycle that follows the write.
+    pub(super) fn apply_halt(&mut self) {
+        if let Some(halt) = self.halt_pending.take() {
+            self.length_halt = halt;
+        }
+    }
+
+    /// Register write that knows whether the next APU cycle clocks
+    /// the length counters (`half_next`). A length reload landing on
+    /// that cycle is ignored if the counter was non-zero; if it was
+    /// zero the reload happens but the clock does not decrement it.
+    pub(super) fn write_timed(&mut self, reg: u16, value: u8, half_next: bool) {
+        let old = self.length;
+        self.write(reg, value);
+        if reg == 3 && half_next {
+            super::resolve_length_reload(&mut self.length, &mut self.skip_length_clock, old);
+        }
+    }
+
     pub(super) fn clock_timer(&mut self) {
         if self.timer == 0 {
             self.timer = self.period;
@@ -119,7 +148,10 @@ impl Pulse {
     }
 
     pub(super) fn clock_length(&mut self) {
-        if !self.envelope_loop && self.length > 0 {
+        if std::mem::take(&mut self.skip_length_clock) {
+            return;
+        }
+        if !self.length_halt && self.length > 0 {
             self.length -= 1;
         }
     }

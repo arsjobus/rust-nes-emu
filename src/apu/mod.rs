@@ -47,6 +47,9 @@ pub struct Apu {
     frame_counter: FrameCounter,
 
     cpu_cycle: u64,
+    /// IRQ line as it stood at the end of the previous CPU cycle. The
+    /// CPU's interrupt poll sees the line one cycle late.
+    irq_line_prev: bool,
 
     // Must match the actual audio output device's sample rate
     // exactly (see `Audio::sample_rate` / `set_sample_rate`
@@ -202,6 +205,7 @@ impl Apu {
             frame_counter: FrameCounter::power_on(),
 
             cpu_cycle: 0,
+            irq_line_prev: false,
             sample_rate: DEFAULT_SAMPLE_RATE,
             output_filter: OutputFilter::new(DEFAULT_SAMPLE_RATE),
             sample_clock: 0.0,
@@ -334,8 +338,14 @@ impl Apu {
         }
 
         match addr {
-            0x5000..=0x5003 => self.mmc5_pulse1.write(addr - 0x5000, value),
-            0x5004..=0x5007 => self.mmc5_pulse2.write(addr - 0x5004, value),
+            0x5000..=0x5003 => {
+                let half = self.frame_counter.half_frame_next();
+                self.mmc5_pulse1.write_timed(addr - 0x5000, value, half);
+            }
+            0x5004..=0x5007 => {
+                let half = self.frame_counter.half_frame_next();
+                self.mmc5_pulse2.write_timed(addr - 0x5004, value, half);
+            }
             0x5010 => {
                 self.mmc5_pcm_mode = value & 1 != 0;
                 self.mmc5_pcm_irq_enabled = value & 0x80 != 0;
@@ -359,16 +369,20 @@ impl Apu {
                 }
             }
             0x4000..=0x4003 => {
-                self.pulse1.write(addr - 0x4000, value);
+                let half = self.frame_counter.half_frame_next();
+                self.pulse1.write_timed(addr - 0x4000, value, half);
             }
             0x4004..=0x4007 => {
-                self.pulse2.write(addr - 0x4004, value);
+                let half = self.frame_counter.half_frame_next();
+                self.pulse2.write_timed(addr - 0x4004, value, half);
             }
             0x4008..=0x400b => {
-                self.triangle.write(addr - 0x4008, value);
+                let half = self.frame_counter.half_frame_next();
+                self.triangle.write_timed(addr - 0x4008, value, half);
             }
             0x400c..=0x400f => {
-                self.noise.write(addr - 0x400c, value);
+                let half = self.frame_counter.half_frame_next();
+                self.noise.write_timed(addr - 0x400c, value, half);
             }
             0x4010..=0x4013 => {
                 self.dmc.write(addr - 0x4010, value);
@@ -389,6 +403,7 @@ impl Apu {
     // services any pending DMC DMA read between cycles (the APU
     // itself has no bus access to do that directly).
     pub(crate) fn step_cycle(&mut self) {
+        self.irq_line_prev = self.irq_line();
         self.cpu_cycle += 1;
 
         self.frame_counter.clock(
@@ -399,6 +414,14 @@ impl Apu {
             &mut self.triangle,
             &mut self.noise,
         );
+
+        // Halt-flag writes take effect after this cycle's length clock.
+        self.pulse1.apply_halt();
+        self.pulse2.apply_halt();
+        self.mmc5_pulse1.apply_halt();
+        self.mmc5_pulse2.apply_halt();
+        self.triangle.apply_halt();
+        self.noise.apply_halt();
 
         if self.cpu_cycle & 1 == 0 {
             self.pulse1.clock_timer();
@@ -591,6 +614,12 @@ impl Apu {
             || self.mmc5_pcm_irq && self.mmc5_pcm_irq_enabled
     }
 
+    /// The IRQ line as the CPU's interrupt poll sees it: the state at
+    /// the end of the cycle before the most recent one.
+    pub fn irq_line_polled(&self) -> bool {
+        self.irq_line_prev
+    }
+
     pub fn take_pending_dmc_fetch(&mut self) -> Option<u16> {
         self.dmc.take_pending_fetch()
     }
@@ -613,5 +642,16 @@ impl Apu {
 
     pub fn take_samples(&mut self) -> Vec<f32> {
         std::mem::take(&mut self.samples)
+    }
+}
+
+/// A length-counter load that lands on the cycle of a length clock:
+/// ignored when the counter was running (`old` non-zero), otherwise
+/// the new value is kept but that clock must not decrement it.
+fn resolve_length_reload(length: &mut u8, skip_clock: &mut bool, old: u8) {
+    if old > 0 {
+        *length = old;
+    } else if *length > 0 {
+        *skip_clock = true;
     }
 }

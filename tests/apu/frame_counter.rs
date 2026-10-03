@@ -72,3 +72,16 @@ fn length_counters_are_clocked_every_14913_cycles() {
     run(&mut fc, &mut ch, 1);
     assert_eq!(ch.noise.length, 9);
 }
+
+#[test]
+fn half_frame_next_predicts_the_length_clock() {
+    let mut fc = FrameCounter::new();
+    let mut ch = channels();
+    for _ in 0..40_000 {
+        let predicted = fc.half_frame_next();
+        ch.p1.length = 10;
+        run(&mut fc, &mut ch, 1);
+        let clocked = ch.p1.length < 10;
+        assert_eq!(predicted, clocked);
+    }
+}

@@ -70,12 +70,21 @@ pub struct Ppu {
 }
 
 impl Ppu {
+    /// Palette RAM contents at power-on, as measured on a real console
+    /// (the values blargg's `power_up_palette` compares against). Real
+    /// units vary, but a fixed non-zero table matches common emulators.
+    pub(crate) const POWER_UP_PALETTE: [u8; 32] = [
+        0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0d, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00, 0x04,
+        0x2c, 0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3a, 0x00, 0x02, 0x00, 0x20,
+        0x2c, 0x08,
+    ];
+
     pub fn new(cart: Cartridge) -> Self {
         Self {
             cart,
 
             vram: [0; 4096],
-            palette: [0; 32],
+            palette: Self::POWER_UP_PALETTE,
             oam: [0; 256],
 
             ctrl: 0,

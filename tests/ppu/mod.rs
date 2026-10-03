@@ -372,3 +372,11 @@ fn frames_keep_full_length_with_rendering_off_or_sprites_only() {
         assert_eq!(frame_dots(&mut ppu), 341 * 262);
     }
 }
+
+#[test]
+fn palette_starts_with_the_documented_power_up_values() {
+    let ppu = ppu();
+    assert_eq!(ppu.palette, Ppu::POWER_UP_PALETTE);
+    assert_eq!(ppu.palette[0], 0x09);
+    assert_eq!(ppu.palette[31], 0x08);
+}
