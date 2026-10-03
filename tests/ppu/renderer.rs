@@ -192,7 +192,7 @@ fn background_is_clipped_in_left_8_pixels_unless_enabled() {
     let mut ppu = ppu_with_solid_sprite_tile();
     hide_all_sprites(&mut ppu);
     ppu.palette[0x01] = 0x30; // background palette 0, colour 1: white
-                              // Nametable is all tile 0, which is solid colour 1.
+    // Nametable is all tile 0, which is solid colour 1.
 
     ppu.mask = 0x08; // background on, left column masked
     ppu.render_scanline(10);

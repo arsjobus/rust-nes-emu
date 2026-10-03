@@ -1,5 +1,3 @@
-#[cfg(test)]
-mod rom_harness;
 mod apu;
 mod audio;
 mod bus;
@@ -10,6 +8,8 @@ mod nes;
 mod postprocess;
 mod ppu;
 mod recorder;
+#[cfg(test)]
+mod rom_harness;
 mod video;
 
 use std::env;

@@ -198,7 +198,10 @@ fn irq_is_taken_one_instruction_after_cli() {
     cpu.step(&mut bus); // CLI
     assert!(!cpu.irq(&mut bus), "IRQ must not be taken right after CLI");
     cpu.step(&mut bus); // NOP
-    assert!(cpu.irq(&mut bus), "IRQ is taken after the following instruction");
+    assert!(
+        cpu.irq(&mut bus),
+        "IRQ is taken after the following instruction"
+    );
 }
 
 /// SEI likewise only masks IRQs after the next instruction.

@@ -23,7 +23,14 @@ fn channels() -> Channels {
 
 fn run(fc: &mut FrameCounter, ch: &mut Channels, cycles: u32) {
     for _ in 0..cycles {
-        fc.clock(&mut ch.p1, &mut ch.p2, &mut ch.m1, &mut ch.m2, &mut ch.tri, &mut ch.noise);
+        fc.clock(
+            &mut ch.p1,
+            &mut ch.p2,
+            &mut ch.m1,
+            &mut ch.m2,
+            &mut ch.tri,
+            &mut ch.noise,
+        );
     }
 }
 

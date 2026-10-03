@@ -4,7 +4,7 @@ mod discrete;
 mod mapper;
 
 use discrete::{
-    BnromMapper, CamericaMapper, ColorDreamsMapper, Mapper140, Mapper87, Nina001Mapper,
+    BnromMapper, CamericaMapper, ColorDreamsMapper, Mapper87, Mapper140, Nina001Mapper,
     Nina03Mapper, Uxrom180Mapper,
 };
 
@@ -195,7 +195,10 @@ impl Cartridge {
             118 => (MapperKind::TxSrom, Box::new(Mmc3Mapper::txsrom(vertical))),
             140 => (MapperKind::Jaleco140, Box::new(Mapper140::new())),
             180 => (MapperKind::Uxrom180, Box::new(Uxrom180Mapper::new())),
-            206 => (MapperKind::Namco108, Box::new(Mmc3Mapper::namco108(vertical))),
+            206 => (
+                MapperKind::Namco108,
+                Box::new(Mmc3Mapper::namco108(vertical)),
+            ),
 
             n => {
                 return Err(format!("Unsupported mapper {}", n));

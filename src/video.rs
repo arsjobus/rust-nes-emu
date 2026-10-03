@@ -90,9 +90,7 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
     if args.iter().any(|arg| arg == "--full-screen") {
         window_builder.fullscreen_desktop();
     }
-    let window = window_builder
-        .build()
-        .expect("Could not create window");
+    let window = window_builder.build().expect("Could not create window");
     let mut canvas = window
         .into_canvas()
         .accelerated()
@@ -104,19 +102,11 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                 (WIDTH * INITIAL_SCALE) as u32,
                 (HEIGHT * INITIAL_SCALE) as u32,
             );
-            builder
-                .position_centered()
-                .resizable()
-                .allow_highdpi();
+            builder.position_centered().resizable().allow_highdpi();
             if args.iter().any(|arg| arg == "--full-screen") {
                 builder.fullscreen_desktop();
             }
-            builder
-                .build()
-                .unwrap()
-                .into_canvas()
-                .software()
-                .build()
+            builder.build().unwrap().into_canvas().software().build()
         })
         .expect("Could not create SDL renderer");
     let texture_creator = canvas.texture_creator();

@@ -6,7 +6,10 @@ use crate::{cartridge::Cartridge, nes::Nes};
 #[ignore]
 fn rom_harness() {
     let path = std::env::var("ROM").expect("set ROM=path");
-    let frames: usize = std::env::var("FRAMES").ok().and_then(|s| s.parse().ok()).unwrap_or(1500);
+    let frames: usize = std::env::var("FRAMES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1500);
     let cart = Cartridge::load(&path).unwrap();
     let mut nes = Nes::new(cart);
     let mut last_status = 0xffu8;
@@ -53,11 +56,16 @@ fn rom_harness() {
     let mut a = 0x6004u16;
     loop {
         let b = nes.bus.read(a);
-        if b == 0 || a > 0x7fff { break; }
+        if b == 0 || a > 0x7fff {
+            break;
+        }
         text.push(b as char);
         a += 1;
     }
-    println!("RESULT status={last_status:#04x} zp_f8={:#04x}\n{text}", nes.bus.ram[0xf8]);
+    println!(
+        "RESULT status={last_status:#04x} zp_f8={:#04x}\n{text}",
+        nes.bus.ram[0xf8]
+    );
     assert_eq!(
         last_status, 0,
         "test ROM did not report success (0x00); status was {last_status:#04x}: {text}"
