@@ -33,8 +33,8 @@ pub struct Controller {
      */
     keyboard_buttons: NesButtons,
 
-    // Left trigger toggles turbo; A and B then pulse while held.
-    turbo_enabled: bool,
+    turbo_a_enabled: bool,
+    turbo_b_enabled: bool,
     left_trigger_pressed: bool,
     right_trigger_pressed: bool,
     keyboard_turbo_pressed: bool,
@@ -75,7 +75,8 @@ impl Controller {
             active_rumbles: Vec::new(),
             usb_buttons: NesButtons::default(),
             keyboard_buttons: NesButtons::default(),
-            turbo_enabled: false,
+            turbo_a_enabled: false,
+            turbo_b_enabled: false,
             right_trigger_pressed: false,
             left_trigger_pressed: false,
             keyboard_turbo_pressed: false,
@@ -257,8 +258,8 @@ impl Controller {
             stick_y,
         ) = state;
 
-        self.set_turbo_trigger(left_trigger);
-        self.set_record_trigger(right_trigger);
+        self.set_a_turbo_trigger(left_trigger);
+        self.set_b_turbo_trigger(right_trigger);
         if y_button && !self.y_button_pressed {
             self.color_cycle_toggle = true;
         }
@@ -317,7 +318,9 @@ impl Controller {
 
     pub fn set_keyboard_turbo_trigger(&mut self, pressed: bool) {
         if pressed && !self.keyboard_turbo_pressed {
-            self.turbo_enabled = !self.turbo_enabled;
+            let enabled = !(self.turbo_a_enabled || self.turbo_b_enabled);
+            self.turbo_a_enabled = enabled;
+            self.turbo_b_enabled = enabled;
         }
         self.keyboard_turbo_pressed = pressed;
     }
@@ -328,13 +331,6 @@ impl Controller {
 
     pub fn take_crt_toggle(&mut self) -> bool {
         std::mem::take(&mut self.crt_toggle)
-    }
-
-    fn set_record_trigger(&mut self, pressed: bool) {
-        if pressed && !self.right_trigger_pressed {
-            self.record_toggle = true;
-        }
-        self.right_trigger_pressed = pressed;
     }
 
     /*
@@ -353,11 +349,18 @@ impl Controller {
         }
     }
 
-    fn set_turbo_trigger(&mut self, pressed: bool) {
+    fn set_a_turbo_trigger(&mut self, pressed: bool) {
         if pressed && !self.left_trigger_pressed {
-            self.turbo_enabled = !self.turbo_enabled;
+            self.turbo_a_enabled = !self.turbo_a_enabled;
         }
         self.left_trigger_pressed = pressed;
+    }
+
+    fn set_b_turbo_trigger(&mut self, pressed: bool) {
+        if pressed && !self.right_trigger_pressed {
+            self.turbo_b_enabled = !self.turbo_b_enabled;
+        }
+        self.right_trigger_pressed = pressed;
     }
 
     /*
@@ -438,12 +441,13 @@ impl Controller {
      * ---------------------------------------------------------
      */
     pub fn buttons(&self) -> NesButtons {
-        let turbo_pulse = !self.turbo_enabled || self.turbo_frame < 3;
         NesButtons {
             // Deliberately swap USB A/B for the preferred default gamepad layout.
-            a: (self.usb_buttons.b || self.keyboard_buttons.a) && turbo_pulse,
+            a: (self.usb_buttons.b || self.keyboard_buttons.a)
+                && (!self.turbo_b_enabled || self.turbo_frame < 3),
 
-            b: (self.usb_buttons.a || self.keyboard_buttons.b) && turbo_pulse,
+            b: (self.usb_buttons.a || self.keyboard_buttons.b)
+                && (!self.turbo_a_enabled || self.turbo_frame < 3),
 
             select: self.usb_buttons.select || self.keyboard_buttons.select,
 
@@ -459,8 +463,12 @@ impl Controller {
         }
     }
 
-    pub fn turbo_enabled(&self) -> bool {
-        self.turbo_enabled
+    pub fn turbo_a_enabled(&self) -> bool {
+        self.turbo_a_enabled
+    }
+
+    pub fn turbo_b_enabled(&self) -> bool {
+        self.turbo_b_enabled
     }
 
     #[allow(dead_code)] // Useful to front ends that display controller status.
@@ -619,5 +627,60 @@ impl Controller {
         self.shift_register |= 0x80;
 
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Controller;
+
+    #[test]
+    fn triggers_toggle_independent_button_turbo_without_recording() {
+        let mut controller = Controller::new();
+
+        controller.set_a_turbo_trigger(true);
+        assert!(controller.turbo_a_enabled());
+        assert!(!controller.turbo_b_enabled());
+        assert!(!controller.take_record_toggle());
+
+        controller.set_a_turbo_trigger(false);
+        controller.set_b_turbo_trigger(true);
+        assert!(controller.turbo_a_enabled());
+        assert!(controller.turbo_b_enabled());
+        assert!(!controller.take_record_toggle());
+    }
+
+    #[test]
+    fn keyboard_turbo_toggles_both_buttons_together() {
+        let mut controller = Controller::new();
+
+        controller.set_keyboard_turbo_trigger(true);
+        assert!(controller.turbo_a_enabled());
+        assert!(controller.turbo_b_enabled());
+
+        controller.set_keyboard_turbo_trigger(false);
+        controller.set_keyboard_turbo_trigger(true);
+        assert!(!controller.turbo_a_enabled());
+        assert!(!controller.turbo_b_enabled());
+    }
+
+    #[test]
+    fn turbo_gates_follow_the_swapped_gamepad_button_mapping() {
+        let mut controller = Controller::new();
+        controller.usb_buttons.a = true;
+        controller.usb_buttons.b = true;
+        controller.turbo_a_enabled = true;
+        controller.turbo_frame = 3;
+
+        let buttons = controller.buttons();
+        assert!(buttons.a);
+        assert!(!buttons.b);
+
+        controller.turbo_a_enabled = false;
+        controller.turbo_b_enabled = true;
+
+        let buttons = controller.buttons();
+        assert!(!buttons.a);
+        assert!(buttons.b);
     }
 }

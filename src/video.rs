@@ -482,12 +482,24 @@ pub fn run(mut nes: Option<Nes>, args: &[String]) {
                 recorder = None;
             }
             postprocess.apply(nes.framebuffer_mut(), WIDTH, HEIGHT);
-            if nes.turbo_enabled() {
+            if nes.turbo_a_enabled() {
                 draw_text(
                     nes.framebuffer_mut(),
                     WIDTH,
                     HEIGHT,
                     2,
+                    2,
+                    "TURBO",
+                    1,
+                    0xffffff,
+                );
+            }
+            if nes.turbo_b_enabled() {
+                draw_text(
+                    nes.framebuffer_mut(),
+                    WIDTH,
+                    HEIGHT,
+                    WIDTH.saturating_sub(32),
                     2,
                     "TURBO",
                     1,
