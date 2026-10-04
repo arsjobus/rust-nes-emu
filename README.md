@@ -4,7 +4,7 @@
 
 New here? Start with the [Getting Started guide](docs/GETTING_STARTED.md) for build instructions, controls, and troubleshooting.
 
-## This project is part of the Intentional Computing project.
+## Philosophy
 
 See:
 https://github.com/arsjobus/intentional-computing
