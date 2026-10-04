@@ -151,8 +151,17 @@ and `--crt-strength`.
 
 ## Input Devices
 
-1. Keyboard
-2. Gamepad Controller (Logitech)
+Keyboard controls:
+
+| NES button | Key |
+| --- | --- |
+| A | X |
+| B | Z |
+| Select | Space |
+| Start | Enter |
+| D-pad | Arrow keys |
+
+Logitech gamepad controllers are also supported.
 
 ## Useful Links
 

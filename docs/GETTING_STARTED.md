@@ -40,8 +40,8 @@ cargo run --release -- --help
 
 | NES button | Keyboard |
 | --- | --- |
-| A | Z |
-| B | X |
+| A | X |
+| B | Z |
 | Select | Space |
 | Start | Enter |
 | D-pad | Arrow keys |

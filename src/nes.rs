@@ -152,8 +152,8 @@ impl Nes {
          * ---------------------------------------------------------
          *
          * Arrow keys -> D-pad
-         * Z          -> A
-         * X          -> B
+         * X          -> A
+         * Z          -> B
          * Space      -> Select
          * Enter      -> Start
          * ---------------------------------------------------------
@@ -161,11 +161,11 @@ impl Nes {
 
         self.bus
             .controller
-            .set_button(NesButton::A, keyboard.is_scancode_pressed(Scancode::Z));
+            .set_button(NesButton::A, keyboard.is_scancode_pressed(Scancode::X));
 
         self.bus
             .controller
-            .set_button(NesButton::B, keyboard.is_scancode_pressed(Scancode::X));
+            .set_button(NesButton::B, keyboard.is_scancode_pressed(Scancode::Z));
 
         self.bus.controller.set_button(
             NesButton::Select,
