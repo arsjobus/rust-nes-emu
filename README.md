@@ -4,6 +4,11 @@
 
 New here? Start with the [Getting Started guide](docs/GETTING_STARTED.md) for build instructions, controls, and troubleshooting.
 
+## This project is part of the Intentional Computing project.
+
+See:
+https://github.com/arsjobus/intentional-computing
+
 ## Features
 
 - **Turbo buttons:** Toggle built-in turbo with **Left Shift** or the gamepad's
