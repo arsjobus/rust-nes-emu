@@ -1,6 +1,6 @@
 # Getting started with RuNES
 
-RuNES is a Nintendo Entertainment System emulator written in Rust. This guide covers building it, starting a game, and using the main controls.
+RuNES is a 6502 NES emulator written in Rust. This guide covers building it, starting a game, and using the main controls.
 
 ## What you need
 
