@@ -152,7 +152,7 @@ impl Nes {
 
         /*
          * ---------------------------------------------------------
-         * RockNES-style keyboard layout
+         * Familiar keyboard layout
          * ---------------------------------------------------------
          *
          * Arrow keys -> D-pad
