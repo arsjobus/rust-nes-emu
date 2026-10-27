@@ -37,7 +37,8 @@ pub struct Controller {
     turbo_b_enabled: bool,
     left_trigger_pressed: bool,
     right_trigger_pressed: bool,
-    keyboard_turbo_pressed: bool,
+    keyboard_a_turbo_pressed: bool,
+    keyboard_b_turbo_pressed: bool,
     keyboard_record_pressed: bool,
     record_toggle: bool,
     color_cycle_toggle: bool,
@@ -79,7 +80,8 @@ impl Controller {
             turbo_b_enabled: false,
             right_trigger_pressed: false,
             left_trigger_pressed: false,
-            keyboard_turbo_pressed: false,
+            keyboard_a_turbo_pressed: false,
+            keyboard_b_turbo_pressed: false,
             keyboard_record_pressed: false,
             record_toggle: false,
             color_cycle_toggle: false,
@@ -316,13 +318,18 @@ impl Controller {
         self.keyboard_record_pressed = pressed;
     }
 
-    pub fn set_keyboard_turbo_trigger(&mut self, pressed: bool) {
-        if pressed && !self.keyboard_turbo_pressed {
-            let enabled = !(self.turbo_a_enabled || self.turbo_b_enabled);
-            self.turbo_a_enabled = enabled;
-            self.turbo_b_enabled = enabled;
+    pub fn set_keyboard_a_turbo_trigger(&mut self, pressed: bool) {
+        if pressed && !self.keyboard_a_turbo_pressed {
+            self.turbo_a_enabled = !self.turbo_a_enabled;
         }
-        self.keyboard_turbo_pressed = pressed;
+        self.keyboard_a_turbo_pressed = pressed;
+    }
+
+    pub fn set_keyboard_b_turbo_trigger(&mut self, pressed: bool) {
+        if pressed && !self.keyboard_b_turbo_pressed {
+            self.turbo_b_enabled = !self.turbo_b_enabled;
+        }
+        self.keyboard_b_turbo_pressed = pressed;
     }
 
     pub fn take_color_cycle_toggle(&mut self) -> bool {
@@ -651,17 +658,22 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_turbo_toggles_both_buttons_together() {
+    fn keyboard_turbo_keys_toggle_buttons_independently() {
         let mut controller = Controller::new();
 
-        controller.set_keyboard_turbo_trigger(true);
+        controller.set_keyboard_a_turbo_trigger(true);
+        assert!(controller.turbo_a_enabled());
+        assert!(!controller.turbo_b_enabled());
+
+        controller.set_keyboard_a_turbo_trigger(false);
+        controller.set_keyboard_b_turbo_trigger(true);
         assert!(controller.turbo_a_enabled());
         assert!(controller.turbo_b_enabled());
 
-        controller.set_keyboard_turbo_trigger(false);
-        controller.set_keyboard_turbo_trigger(true);
+        controller.set_keyboard_b_turbo_trigger(false);
+        controller.set_keyboard_a_turbo_trigger(true);
         assert!(!controller.turbo_a_enabled());
-        assert!(!controller.turbo_b_enabled());
+        assert!(controller.turbo_b_enabled());
     }
 
     #[test]

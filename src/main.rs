@@ -98,8 +98,9 @@ fn print_usage() {
     eprintln!("  USB gamepad             Logitech/gamepad controller support");
     eprintln!("  Left trigger            Toggle turbo for the A button");
     eprintln!("  0                       Start/stop MP4 video and audio recording");
-    eprintln!("  Left Shift              Toggle turbo for A and B buttons");
+    eprintln!("  Left Shift              Toggle turbo for the A button");
     eprintln!("  Right trigger           Toggle turbo for the B button");
+    eprintln!("  Right Shift             Toggle turbo for the B button");
     eprintln!("  Controller X            Toggle CRT effect while playing");
     eprintln!("  Hold Start for 3 seconds Return to the ROM menu");
     eprintln!();

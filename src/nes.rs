@@ -146,9 +146,12 @@ impl Nes {
         self.bus
             .controller
             .set_keyboard_record_trigger(keyboard.is_scancode_pressed(Scancode::Num0));
-        self.bus
-            .controller
-            .set_keyboard_turbo_trigger(keyboard.is_scancode_pressed(Scancode::LShift));
+        self.bus.controller.set_keyboard_a_turbo_trigger(
+            keyboard.is_scancode_pressed(Scancode::LShift),
+        );
+        self.bus.controller.set_keyboard_b_turbo_trigger(
+            keyboard.is_scancode_pressed(Scancode::RShift),
+        );
 
         /*
          * ---------------------------------------------------------

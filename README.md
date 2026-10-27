@@ -12,8 +12,8 @@ https://github.com/arsjobus/intentional-computing
 ## Features
 
 - **Turbo buttons:** Toggle A-button turbo with the gamepad's **left trigger**
-  and B-button turbo with its **right trigger**. The corresponding button pulses
-  while held; **Left Shift** toggles turbo for both buttons. On-screen `TURBO`
+  or **Left Shift** key, and B-button turbo with its **right trigger** or **Right Shift**.
+  The corresponding button pulses while held. On-screen `TURBO`
   labels show A turbo at the upper left and B turbo at the upper right.
 - **ROM browser:** Start without a ROM to open an animated TV-static screen and
   choose a `.nes` file found in the current directory or recursively under
@@ -75,7 +75,7 @@ Start without a ROM to show animated TV static and a ROM picker:
 
 `cargo run --release`
 
-The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Use the controller's **left trigger** to toggle A-button turbo and its **right trigger** to toggle B-button turbo. Press **Left Shift** to toggle turbo for both buttons. An on-screen `TURBO` label appears at the upper left for A turbo and the upper right for B turbo. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. Press controller **X** to toggle the CRT phosphor, scanline, and edge-shading effect. Hold **Start** for three seconds (or press **R**) to return to the ROM menu. Press **O** to rescan the ROM list. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. **Esc** quits.
+The idle screen lists `.nes` files in the current folder and searches `roms/` recursively. Use **Up/Down** or the controller **D-pad/left stick** to choose a game; press **Enter** or controller **A/Start** to launch it. While playing, press **0** to start or stop an MP4 recording with game audio; recordings are saved in the command's current directory at 1152×1080, preserving the game's near-square shape. Use the controller's **left trigger** or keyboard **Left Shift** to toggle A-button turbo, and the **right trigger** or **Right Shift** to toggle B-button turbo. An on-screen `TURBO` label appears at the upper left for A turbo and the upper right for B turbo. Press **Y** to enable color correction and cycle through the available LUT presets; each press selects the next preset. Press controller **X** to toggle the CRT phosphor, scanline, and edge-shading effect. Hold **Start** for three seconds (or press **R**) to return to the ROM menu. Press **O** to rescan the ROM list. The image is enlarged with nearest-neighbor sampling. Video uses standard H.264 MP4 encoding for wider player compatibility, and audio uses ALAC. FFmpeg with `libx264` support must be installed and available on `PATH` to finalize the MP4. A red border appears around the game window while recording and is not included in the recording. **Esc** quits.
 
 ### Battery Saves
 
